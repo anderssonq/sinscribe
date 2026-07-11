@@ -1,0 +1,12 @@
+node_modules/
+dist/
+coverage/
+*.tgz
+.env
+.tmp/
+
+# Internal / not-for-public (kept locally, never committed)
+.claude/skills/
+ARCHITECTURE.md
+RELEASE_PLAN_PROMPT.md
+TODO.md

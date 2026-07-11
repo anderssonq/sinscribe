@@ -1,0 +1,273 @@
+<div align="center">
+
+<pre>
+         oo                                     oo dP
+                                                   88
+.d8888b. dP 88d888b. .d8888b. .d8888b. 88d888b. dP 88d888b. .d8888b.
+Y8ooooo. 88 88'  `88 Y8ooooo. 88'  `"" 88'  `88 88 88'  `88 88ooood8
+      88 88 88    88       88 88.  ... 88       88 88.  .88 88.  ...
+`88888P' dP dP    dP `88888P' `88888P' dP       dP 88Y8888' `88888P'
+</pre>
+
+**Your git workflow, written for you — from the terminal.**
+
+![License](https://img.shields.io/badge/license-MIT-blue.svg)
+![Node](https://img.shields.io/badge/node-%3E%3D20-brightgreen.svg)
+![Status](https://img.shields.io/badge/status-beta-orange.svg)
+![Built with TypeScript](https://img.shields.io/badge/built%20with-TypeScript-3178C6.svg)
+
+</div>
+
+Sinscribe is a git-centric developer-workflow assistant CLI. It reads your
+actual git state — diffs, branch, ticket, session context — and writes the
+prose around it: PR/MR descriptions, commit messages, branch names,
+project-context briefs, documentation with mermaid diagrams, and AI agent
+context files (`CLAUDE.md` / `AGENTS.md`). It runs in your terminal as a
+one-shot command or an interactive chat agent.
+
+> [!NOTE]
+> **Beta (v0.0.1, pre-1.0).** Sinscribe is in active development and already in
+> daily use, but flags, defaults, and output may still change. It isn't on npm
+> yet — [install from source](#install); a global `npm install -g sinscribe` is
+> the next milestone.
+
+## Features
+
+- **PR/MR descriptions** from your local changes vs the target branch, measured
+  from the merge base up — so it works before you commit.
+- **Conventional Commit + Gitmoji messages** from your staged changes.
+- **Branch names** and **task prompts** for your AI coding agent, generated from
+  a short description or ticket.
+- **Project understanding** — a structured context brief, full documentation
+  with mermaid diagrams, and `CLAUDE.md` / `AGENTS.md` scaffolding, produced by
+  an agent that explores the repo.
+- **Interactive chat** over the current repository.
+- **Per-branch sessions** that capture business context (feature, ticket,
+  requirements, target branch) and feed it to every generation.
+- **Customizable templates** — six built-in house styles plus your own, with
+  typed placeholders filled deterministically from git or by the model.
+- **Deterministic `--dry-run`** on every command: no model call, no credentials
+  read — useful for previewing detection and in CI.
+
+## Prerequisites
+
+- Node.js >= 20
+- git
+- An API key for a supported provider (OpenCode Go by default — see
+  [Configuration](#configuration))
+
+## Install
+
+> [!TIP]
+> **Coming soon:** `npm install -g sinscribe`. Until the first npm release,
+> install from source.
+
+```bash
+pnpm install
+pnpm build
+node dist/cli.js --help       # or: pnpm sinscribe --help
+# optional: pnpm link --global   → `sinscribe` on your PATH
+```
+
+## Quick start
+
+```bash
+cd your-repo
+sinscribe                 # interactive chat + menu over the current repo
+sinscribe pr              # draft a PR description from your local changes
+sinscribe commit          # Conventional Commit message from staged changes
+sinscribe pr --dry-run    # preview detection + scaffold, no API key needed
+```
+
+The first interactive run asks for your provider API key and stores it in
+`~/.sinscribe/.env`.
+
+## Commands
+
+| Command              | What it does                                                            |
+| -------------------- | ----------------------------------------------------------------------- |
+| `sinscribe`          | Interactive chat agent + menu over the current repo                     |
+| `sinscribe pr`       | PR/MR description from local changes vs the target branch               |
+| `sinscribe commit`   | Conventional Commit + Gitmoji message from staged changes               |
+| `sinscribe branch`   | Branch-name suggestions from a description/ticket                       |
+| `sinscribe prompt`   | Copy-ready feature/bugfix task prompt for your AI coding agent          |
+| `sinscribe context`  | Structured project-context brief (markdown or JSON)                     |
+| `sinscribe docs`     | Project documentation with mermaid diagrams                             |
+| `sinscribe agents`   | Generate/refresh `CLAUDE.md` + `AGENTS.md` from the repo                |
+| `sinscribe template` | Manage the template library (`list` / `show` / `add` / `edit` / `path`) |
+
+### Common flags
+
+Every command supports:
+
+| Flag                | Effect                                                             |
+| ------------------- | ------------------------------------------------------------------ |
+| `--dry-run`         | Deterministic scaffold: no LLM call, no credentials read           |
+| `-p, --print`       | One-shot non-interactive run, result on stdout (default off a TTY) |
+| `--model-id <id>`   | Model override for this run                                        |
+| `--provider <name>` | Provider override for this run (not persisted)                     |
+| `--api-key <key>`   | API key override for this run (not persisted)                      |
+
+### Examples
+
+```bash
+# Pull requests
+sinscribe pr --template github --base origin/main --out PR.md
+sinscribe pr --base develop --staged       # only staged changes, vs develop
+sinscribe pr --dry-run                      # branch/ticket/diff detection + scaffold
+
+# Commits & branches
+sinscribe commit --scope api --no-gitmoji
+sinscribe branch ABC-123 add retry logic to uploader   # → fix/... suggestions
+
+# Prompts & project understanding
+sinscribe prompt --type bugfix uploader crashes on empty files
+sinscribe context --format json --out context.json
+sinscribe agents --target claude --update
+
+# Chat & per-run overrides
+sinscribe -p "what changed on this branch?"
+sinscribe pr --provider anthropic --api-key sk-ant-...
+```
+
+Ticket IDs (`ABC-123`, `#42`) are auto-detected from the branch name for `pr`
+and from the input for `branch`. When a branch session exists, its
+feature/ticket/requirements are fed to the model as business context.
+
+## Configuration
+
+On first interactive run, Sinscribe asks for your provider API key and stores it
+in `~/.sinscribe/.env` (directory `0700`, file `0600`). Process env vars always
+win over the file, and nothing secret is ever printed.
+
+```bash
+# ~/.sinscribe/.env (all optional; created by the CLI)
+SINSCRIBE_PROVIDER="opencode-go"    # opencode-go | openrouter | baseten | fireworks | openai | openai-compatible | anthropic
+SINSCRIBE_MODEL_ID="kimi-k2.7-code" # default model for the provider
+OPENCODE_API_KEY="..."
+ANTHROPIC_API_KEY="..."             # if you switch to anthropic
+SINSCRIBE_TICKET_PATTERN="(T-\d+)"  # optional custom ticket regex
+SINSCRIBE_THEME="ayu-dark"          # TUI color theme (set from the menu's Theme picker)
+```
+
+The default provider is **OpenCode Go** (an OpenAI-compatible endpoint at
+`https://opencode.ai/zen/go/v1`) with **Kimi K2.7 Code** as the default model —
+set `OPENCODE_API_KEY` and you're done. Other models on the same plan:
+`glm-5.2`, `glm-5.1`, `kimi-k2.6`, `deepseek-v4-pro`, `deepseek-v4-flash`,
+`mimo-v2.5`, `mimo-v2.5-pro`.
+
+You can switch provider/model per run with `--provider` / `--model-id` /
+`--api-key`, or persist a new choice from the TUI's **AI settings** item — which
+also has a **Test connection** step that calls the provider's `GET /models`
+endpoint (free, no tokens) to verify the key and model before saving.
+
+### Provider support
+
+| Provider                                                                         | Status                                                                 |
+| -------------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
+| `opencode-go`                                                                    | **Supported and maintained**                                           |
+| `openrouter`, `anthropic`, `openai`, `baseten`, `fireworks`, `openai-compatible` | Beta — kept selectable but not actively maintained or regularly tested |
+
+> [!WARNING]
+> Only OpenCode Go is exercised regularly. The beta providers ship as-is and may
+> lag behind their vendors' API changes — verify one with **Test connection**
+> before relying on it.
+
+## Templates
+
+Templates are Markdown files with YAML frontmatter and typed `{{placeholder}}`
+slots. There are three tiers; a later tier overrides an earlier one by name:
+
+1. **Built-in** (shipped): `andersoftware` (default — Conventional Commits +
+   Gitmoji title with full review sections), `github`, `google`, `kubernetes`,
+   `shopify`, `stripe`
+2. **User**: `~/.sinscribe/templates/*.md`
+3. **Project**: `<repo>/.sinscribe/templates/*.md`
+
+```markdown
+---
+name: myteam
+kind: pr
+placeholders:
+  ticket: { type: string, required: true, from: branch } # filled from git, deterministic
+  summary: { type: markdown, required: true, from: llm } # produced by the model
+  changes: { type: list, required: true, from: llm } # rendered as bullets
+---
+
+## [{{ticket}}] {{summary}}
+```
+
+`from: git|branch` slots are filled deterministically (also in `--dry-run`);
+`from: llm` slots are requested from the model as validated JSON. Manage the
+library with `sinscribe template list | show | add | edit | path`.
+
+## Sessions
+
+The menu (bare `sinscribe`) is **context-first**: on a branch with no saved
+context it opens straight into the context form, and the "Create PR
+description" / "Create branch name" items require a context before they run. A
+session captures **business context** per branch — feature description, ticket
+ID, requirements, and the **target branch** it merges into — stored in
+`<repo>/.sinscribe/sessions/<branch>.json`.
+
+- **`pr`** describes your local changes vs the target branch, from the merge
+  base up — so it works before you commit, and commits that landed on the target
+  after you branched don't pollute the diff. By default it includes all tracked
+  changes (staged + unstaged); `--staged` narrows it to the index. On the next
+  run for the same branch it enters **update mode**, revising the previous
+  description with the fresh diff instead of starting over.
+- The target branch is resolved in order: `--base <ref>`, then the session's
+  saved target, then auto-detection (`origin/HEAD`, `origin/main`,
+  `origin/master`, `origin/develop`, `main`, `master`, `develop`).
+- **Create branch name** generates suggestions from the session context and
+  creates the branch from the target (`git checkout -b <name> <target>`),
+  migrating the session so `pr` works there immediately. Once the branch differs
+  from its target, the item becomes **Rename branch** (`git branch -m`).
+
+## How it works
+
+- **`pr` / `commit` / `branch` / `prompt` are single-shot:** the CLI computes the
+  diff and context locally and makes one model call — the model never touches
+  your repo. (Branch creation/rename is a plain git call the CLI makes after you
+  pick a name; the model only suggests names.)
+- **`context` / `docs` / `agents` / chat are agentic:** a deepagents loop with
+  read tools (and, for `agents`, write) rooted at the repository.
+- Sinscribe fails gracefully outside a git repository, never lets the agent read
+  `.env` files, and keeps secrets out of all output and logs.
+
+Built with [Ink](https://github.com/vadimdemedes/ink),
+[LangChain](https://github.com/langchain-ai/langchainjs) /
+[LangGraph](https://github.com/langchain-ai/langgraphjs), and
+[deepagents](https://github.com/langchain-ai/deepagents). See
+[`ARCHITECTURE.md`](ARCHITECTURE.md) and [`DESIGN.md`](DESIGN.md) for the
+internals, and [`documentation.md`](documentation.md) for the maintainer
+reference.
+
+## Development
+
+```bash
+pnpm dev pr --dry-run      # run from source (tsx); note: no "--" separator
+pnpm test                  # vitest
+pnpm lint:check && pnpm format:check
+pnpm build
+```
+
+CI ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) runs the same checks
+on push and PR. Setup, quality gates, and house conventions live in
+[`CONTRIBUTING.md`](CONTRIBUTING.md).
+
+## Why I built this
+
+I basically live in the terminal, and lately it feels like every other tool
+shipping in tech is a CLI. I wanted to see what it actually takes to build one
+today — so I made something I'd use every day: a little assistant that shaves
+friction off my real workflow. _The Pragmatic Programmer_ puts it well: invest
+in your tools, sharpen them, and let them make you faster. This is me taking
+that advice literally.
+
+## Credits
+
+Inspired by [openwiki](https://github.com/langchain-ai/openwiki), whose
+agentic-CLI skeleton (provider abstraction, config/secrets layer, agent loop)
+gave Sinscribe its starting point. The domain — git workflows, templates, and
+per-branch sessions — is Sinscribe's own.
