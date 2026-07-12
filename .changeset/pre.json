@@ -4,5 +4,7 @@
   "initialVersions": {
     "sinscribe": "0.0.1"
   },
-  "changesets": []
+  "changesets": [
+    "initial-beta-release"
+  ]
 }
