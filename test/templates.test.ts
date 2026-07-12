@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import {
   getLlmPlaceholderNames,
   renderTemplate,
+  renderTemplatePreview,
 } from "../src/templates/render.js";
 import { parseTemplate, TemplateParseError } from "../src/templates/schema.js";
 
@@ -83,6 +84,44 @@ describe("renderTemplate", () => {
 
     expect(rendered).toContain("{{title}}");
     expect(rendered).toContain("feat/retries");
+  });
+});
+
+describe("renderTemplatePreview", () => {
+  it("replaces every slot with a hint and leaves no {{ syntax", () => {
+    const template = parseTemplate(SAMPLE, "sample.md");
+    const preview = renderTemplatePreview(template);
+
+    expect(preview).not.toContain("{{");
+    // No descriptions on SAMPLE's placeholders → hint falls back to the name.
+    expect(preview).toContain("‹ title ›");
+    expect(preview).toContain("‹ changes ›");
+    // Static body text is preserved so the shape reads like the real output.
+    expect(preview).toContain("Branch: ‹ branch ›");
+  });
+
+  it("uses the placeholder description as the hint when present", () => {
+    const template = parseTemplate(
+      `---
+name: described
+kind: pr
+placeholders:
+  summary:
+    type: markdown
+    required: true
+    from: llm
+    description: Summary of the change
+---
+## Summary
+
+{{summary}}
+`,
+      "described.md",
+    );
+
+    expect(renderTemplatePreview(template)).toContain(
+      "‹ Summary of the change ›",
+    );
   });
 });
 

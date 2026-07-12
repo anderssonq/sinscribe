@@ -1,9 +1,14 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Box, Text, useInput } from "ink";
 import { LOGO_LINES, logoVisible, useTerminalSize } from "./logo.js";
 import { MENU_ITEMS, type MenuChoice, type MenuItem } from "./menu-items.js";
 import { useOnClick, useOnWheel } from "./mouse.js";
-import { appendInput, deleteLast, visibleTail } from "./text-buffer.js";
+import {
+  appendInput,
+  deleteLast,
+  visibleTail,
+  wrapLines,
+} from "./text-buffer.js";
 import { theme } from "./theme.js";
 
 /**
@@ -330,6 +335,169 @@ export function SelectList({
           ↑↓ or j/k to move · enter select · esc back
         </Text>
       </Box>
+    </Box>
+  );
+}
+
+type PreviewPaneProps = {
+  title: string;
+  text: string;
+  /** When true, grows to fill the remaining width in a side-by-side row. */
+  grow?: boolean;
+};
+
+/**
+ * Bordered, height-capped panel that previews a block of text beside a
+ * SelectList (the PR template picker uses it to show a template's shape). Shows
+ * the head of the text — templates lead with their key sections — truncating
+ * long lines to the pane width and footing with a "… N more lines" count. Its
+ * height tracks the same viewport math as SelectList so the two panes stay
+ * roughly aligned.
+ */
+export function PreviewPane({ title, text, grow }: PreviewPaneProps) {
+  const { columns, rows } = useTerminalSize();
+  const logoRows = logoVisible(columns, rows) ? LOGO_LINES.length : 0;
+  const cap = Math.max(6, rows - logoRows - SELECT_CHROME_ROWS);
+  const lines = text.split("\n");
+  const shown = lines.slice(0, cap);
+  const hidden = lines.length - shown.length;
+
+  return (
+    <Box flexDirection="column" flexGrow={grow ? 1 : undefined}>
+      <Text color={theme.accent}>{title}</Text>
+      <Box
+        borderColor={theme.border}
+        borderStyle="round"
+        flexDirection="column"
+        paddingX={1}
+      >
+        {shown.map((line, index) => (
+          <Text color={theme.dim} key={index} wrap="truncate-end">
+            {line.length > 0 ? line : " "}
+          </Text>
+        ))}
+        <Text color={theme.faint}>
+          {hidden > 0 ? `… ${hidden} more line${hidden === 1 ? "" : "s"}` : " "}
+        </Text>
+      </Box>
+    </Box>
+  );
+}
+
+/** Rows of chrome around a ScrollView viewport in the menu layout: the header
+ *  box + subtitle + margin, this view's title and two scroll indicators, and a
+ *  cushion. The logo's rows are subtracted separately. Overestimated on purpose
+ *  — a viewport taller than the terminal makes the alt-screen scroll and leaves
+ *  redraw residue, so it is safer to show a few rows fewer than a few too many. */
+const SCROLL_CHROME_ROWS = 12;
+
+/** Wheel notches move a few rows at a time; keys move one row / one page. */
+const SCROLL_WHEEL_STEP = 3;
+
+type ScrollViewProps = {
+  title: string;
+  text: string;
+  onExit: () => void;
+  isActive: boolean;
+};
+
+/**
+ * Full-width scrollable reader for long generated output (PR descriptions,
+ * agent prompts) so the whole text can be reviewed, not just its tail. The text
+ * is pre-wrapped to the terminal width so every row is one visual line, then
+ * windowed to what fits under the logo/header. j/k or arrows scroll one row,
+ * PageUp/PageDown a page, g/G jump to the ends, the wheel scrolls, and esc/q
+ * exits. Mirrors HelpView so the two scroll experiences feel identical.
+ */
+export function ScrollView({ title, text, onExit, isActive }: ScrollViewProps) {
+  const { columns, rows } = useTerminalSize();
+  const [offset, setOffset] = useState(0);
+
+  const width = Math.max(20, columns - 2);
+  const lines = useMemo(() => wrapLines(text, width), [text, width]);
+
+  const logoRows = logoVisible(columns, rows) ? LOGO_LINES.length : 0;
+  const visible = Math.max(4, rows - logoRows - SCROLL_CHROME_ROWS);
+
+  const maxOffset = Math.max(0, lines.length - visible);
+  const clamped = Math.min(offset, maxOffset);
+  const window = lines.slice(clamped, clamped + visible);
+  const above = clamped;
+  const below = Math.max(0, lines.length - (clamped + visible));
+
+  function scrollBy(delta: number) {
+    setOffset((current) => Math.min(maxOffset, Math.max(0, current + delta)));
+  }
+
+  useInput(
+    (value, key) => {
+      if (key.escape || value === "q") {
+        onExit();
+        return;
+      }
+
+      if (key.upArrow || value === "k") {
+        scrollBy(-1);
+        return;
+      }
+
+      if (key.downArrow || value === "j") {
+        scrollBy(1);
+        return;
+      }
+
+      if (key.pageUp || value === "b") {
+        scrollBy(-visible);
+        return;
+      }
+
+      if (key.pageDown || value === "f" || value === " ") {
+        scrollBy(visible);
+        return;
+      }
+
+      if (value === "g") {
+        setOffset(0);
+        return;
+      }
+
+      if (value === "G") {
+        setOffset(maxOffset);
+      }
+    },
+    { isActive },
+  );
+
+  useOnWheel((direction) => {
+    if (!isActive) {
+      return;
+    }
+
+    scrollBy(direction === "up" ? -SCROLL_WHEEL_STEP : SCROLL_WHEEL_STEP);
+  });
+
+  return (
+    <Box flexDirection="column">
+      <Text color={theme.accent}>{title}</Text>
+      <Text color={theme.dim}>
+        {above > 0
+          ? `↑ ${above} more line${above === 1 ? "" : "s"} above`
+          : " "}
+      </Text>
+      <Box flexDirection="column">
+        {window.map((line, index) => (
+          // Pre-wrapped rows already fit; truncate-end guards any off-by-one so
+          // each row stays a single visual line and the scroll math holds.
+          <Text key={index} wrap="truncate-end">
+            {line === "" ? " " : line}
+          </Text>
+        ))}
+      </Box>
+      <Text color={theme.dim}>
+        {below > 0
+          ? `↓ ${below} more — ↑/↓ or j/k · wheel · PgUp/PgDn · g/G · esc back`
+          : "end — ↑/↓ or j/k · wheel to scroll · esc to go back"}
+      </Text>
     </Box>
   );
 }

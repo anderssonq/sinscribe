@@ -39,10 +39,11 @@ import {
   saveSession,
   type BranchSession,
 } from "../session/store.js";
+import { renderTemplatePreview } from "../templates/render.js";
 import { loadTemplates, type TemplateEntry } from "../templates/registry.js";
 import { DocsReviewFlow } from "./docs-review.js";
 import { HelpView } from "./help-view.js";
-import { Logo } from "./logo.js";
+import { Logo, useTerminalSize } from "./logo.js";
 import {
   buildMenuItems,
   isOnWorkBranch,
@@ -53,6 +54,7 @@ import {
   InlinePrompt,
   MainMenu,
   MultilinePrompt,
+  PreviewPane,
   SelectList,
 } from "./menu-view.js";
 import { PrReviewFlow } from "./pr-review.js";
@@ -179,9 +181,13 @@ export function MenuApp({
   const [session, setSession] = useState<BranchSession | null>(null);
   const [stats, setStats] = useState<HeaderStats>(EMPTY_STATS);
   const [detectedBase, setDetectedBase] = useState<string | null>(null);
+  // Name of the template highlighted in the picker, driving its live preview.
+  // Null until the cursor first moves; the render falls back to the initial id.
+  const [previewName, setPreviewName] = useState<string | null>(null);
   // Bumped to repaint the tree when the active palette is mutated in place
   // (theme preview) — setTheme() alone does not trigger a React render.
   const [, forceThemeRepaint] = useState(0);
+  const { columns } = useTerminalSize();
   const nextLogId = useRef(1);
 
   /** Builds the initial context form draft from the saved session, defaulting
@@ -595,6 +601,9 @@ export function MenuApp({
         return;
       }
 
+      // Reset so the preview starts on the cursor's initial template, not a
+      // stale highlight from a previous open of the picker.
+      setPreviewName(null);
       setMode({
         view: "template-pick",
         templates,
@@ -915,7 +924,7 @@ export function MenuApp({
                 initialValue={mode.draft.requirements ?? ""}
                 isActive
                 key="requirements"
-                label="Requirements — constraints or acceptance criteria (3/4, optional)"
+                label="Requirements & docs — acceptance criteria, business/technical rules, doc excerpts (3/4, optional)"
                 onCancel={goToMenu}
                 onSubmit={(value) => {
                   setMode({
@@ -924,7 +933,7 @@ export function MenuApp({
                     draft: { ...mode.draft, requirements: value || null },
                   });
                 }}
-                placeholder="e.g. Must keep backwards compatibility with v1 uploads (multi-line ok)"
+                placeholder="e.g. AC from the ticket; business/technical rules; paste key Confluence or design-doc excerpts (multi-line ok)"
               />
             ) : null}
             {mode.step === "base" ? (
@@ -964,7 +973,7 @@ export function MenuApp({
                 {session?.context?.ticket ?? "(none)"}
               </Text>
               <Text>
-                <Text color={theme.dim}>Requirements: </Text>
+                <Text color={theme.dim}>Requirements &amp; docs: </Text>
                 {session?.context?.requirements ?? "(none)"}
               </Text>
               <Text>
@@ -1015,40 +1024,76 @@ export function MenuApp({
             />
           </Box>
         ) : null}
-        {mode.view === "template-pick" ? (
-          <SelectList
-            initialId={session?.pr?.template ?? "andersoftware"}
-            isActive
-            items={mode.templates.map((template) => ({
-              id: template.name,
-              label: template.name,
-              hint: template.description || template.tier,
-            }))}
-            onCancel={goToMenu}
-            onSelect={(name) => {
-              setLog([]);
-              setMode({
-                view: "pr-review",
-                label: mode.updating
-                  ? "Update PR description"
-                  : "Create PR description",
-                spec: {
-                  name: "pr",
-                  template: name,
-                  base: null,
-                  ticket: null,
-                  staged: false,
-                  out: null,
-                },
-              });
-            }}
-            title={
-              mode.updating
-                ? "Updating existing PR description — pick a template"
-                : "Pick a PR template"
-            }
-          />
-        ) : null}
+        {mode.view === "template-pick"
+          ? (() => {
+              const initialId = session?.pr?.template ?? "andersoftware";
+              // The template whose shape the preview shows: the highlighted one,
+              // falling back to the cursor's initial id, then the first entry.
+              const active =
+                mode.templates.find((t) => t.name === previewName) ??
+                mode.templates.find((t) => t.name === initialId) ??
+                mode.templates[0];
+              // Side-by-side only when there's room; otherwise stack the preview
+              // under the list so a narrow terminal never squeezes it.
+              const sideBySide = columns >= 100;
+
+              const picker = (
+                <SelectList
+                  initialId={initialId}
+                  isActive
+                  items={mode.templates.map((template) => ({
+                    id: template.name,
+                    label: template.name,
+                    hint: template.description || template.tier,
+                  }))}
+                  onCancel={goToMenu}
+                  onHighlight={setPreviewName}
+                  onSelect={(name) => {
+                    setLog([]);
+                    setMode({
+                      view: "pr-review",
+                      label: mode.updating
+                        ? "Update PR description"
+                        : "Create PR description",
+                      spec: {
+                        name: "pr",
+                        template: name,
+                        base: null,
+                        ticket: null,
+                        staged: false,
+                        out: null,
+                      },
+                    });
+                  }}
+                  title={
+                    mode.updating
+                      ? "Updating existing PR description — pick a template"
+                      : "Pick a PR template"
+                  }
+                />
+              );
+
+              const preview = active ? (
+                <PreviewPane
+                  grow={sideBySide}
+                  text={renderTemplatePreview(active)}
+                  title={`Preview: ${active.name}`}
+                />
+              ) : null;
+
+              return sideBySide ? (
+                <Box columnGap={2} flexDirection="row">
+                  <Box flexShrink={0}>{picker}</Box>
+                  {preview}
+                </Box>
+              ) : (
+                <Box flexDirection="column">
+                  {picker}
+                  {preview}
+                </Box>
+              );
+            })()
+          : null}
         {mode.view === "theme-pick" ? (
           <SelectList
             initialId={getActiveThemeId()}

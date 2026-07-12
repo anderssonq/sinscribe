@@ -13,7 +13,7 @@ import {
   PROMPT_EXPORT_FILENAME,
 } from "../domain/prompt-export.js";
 import { copyToClipboard } from "../util/clipboard.js";
-import { MultilinePrompt, SelectList } from "./menu-view.js";
+import { MultilinePrompt, ScrollView, SelectList } from "./menu-view.js";
 import { appendEvent, RunLog, type LogItem } from "./run-view.js";
 import { getErrorMessage, isDebugMode } from "./shared.js";
 import { Spinner } from "./spinner.js";
@@ -32,6 +32,7 @@ type Phase =
   | { phase: "describe-input" }
   | { phase: "generating"; feedback: string | null; label: string }
   | { phase: "review"; content: string }
+  | { phase: "view-full"; content: string }
   | { phase: "refine-input"; content: string }
   | {
       phase: "error";
@@ -397,8 +398,8 @@ export function PromptReviewFlow({
         >
           {hidden > 0 ? (
             <Text color={theme.dim}>
-              … {hidden} more line{hidden === 1 ? "" : "s"} above (the full text
-              is shown and exported after approval)
+              … {hidden} more line{hidden === 1 ? "" : "s"} above — pick “View
+              full” to scroll it all
             </Text>
           ) : null}
           {lines.map((line, index) => (
@@ -422,6 +423,11 @@ export function PromptReviewFlow({
               hint: "describe what to change and regenerate",
             },
             {
+              id: "view",
+              label: "View full",
+              hint: "scroll the entire prompt (j/k, wheel, esc back)",
+            },
+            {
               id: "cancel",
               label: "Cancel",
               hint: "discard and exit — nothing is saved",
@@ -435,6 +441,8 @@ export function PromptReviewFlow({
               void approve(phase.content);
             } else if (id === "modify") {
               setPhase({ phase: "refine-input", content: phase.content });
+            } else if (id === "view") {
+              setPhase({ phase: "view-full", content: phase.content });
             } else {
               finish({ status: "cancelled" });
             }
@@ -442,6 +450,19 @@ export function PromptReviewFlow({
           title="Does this look good?"
         />
       </Box>
+    );
+  }
+
+  if (phase.phase === "view-full") {
+    return (
+      <ScrollView
+        isActive={isActive}
+        onExit={() => {
+          setPhase({ phase: "review", content: phase.content });
+        }}
+        text={phase.content}
+        title="Generated agent prompt — full text"
+      />
     );
   }
 
