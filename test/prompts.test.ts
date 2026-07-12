@@ -51,6 +51,42 @@ describe("createPrSystemPrompt", () => {
     expect(prompt).toContain("gave feedback");
     expect(prompt).toContain("Apply every point of the feedback");
   });
+
+  it("always demands a breaking-change scan, naming the slot when one exists", () => {
+    const generic = createPrSystemPrompt(TEMPLATE);
+
+    expect(generic).toContain("Scan the diff for breaking changes");
+    expect(generic).toContain("newly required config fields");
+    expect(generic).toContain("whichever field or checklist");
+
+    const slotted = parseTemplate(
+      `---
+name: slotted
+kind: pr
+placeholders:
+  summary: { type: markdown, required: true, from: llm }
+  breaking_section: { type: markdown, required: false, from: llm }
+---
+{{summary}}
+
+{{breaking_section}}
+`,
+      "slotted.md",
+    );
+
+    expect(createPrSystemPrompt(slotted)).toContain(
+      'record any in "breaking_section"',
+    );
+  });
+
+  it("asks for a reference to the actual ticket only when one is available", () => {
+    const withTicket = createPrSystemPrompt(TEMPLATE, { ticket: "ABC-123" });
+
+    expect(withTicket).toContain("The ticket for this branch is ABC-123");
+    expect(withTicket).toContain('"Refs ABC-123"');
+    expect(withTicket).toContain("following that field's format");
+    expect(createPrSystemPrompt(TEMPLATE)).not.toContain("Refs");
+  });
 });
 
 describe("createPromptSystemPrompt", () => {
@@ -61,9 +97,20 @@ describe("createPromptSystemPrompt", () => {
     expect(prompt).toContain("## Out of scope");
     expect(prompt).toContain("## Verification");
     expect(prompt).toContain("ONLY the markdown document");
+    expect(prompt).toContain("no trailing remark after the last section");
     expect(prompt).toContain("no surrounding code fence");
     expect(prompt).not.toContain("JSON");
     expect(prompt).not.toContain("previously generated prompt");
+  });
+
+  it("frames existing commits as background without banning symptom claims", () => {
+    const prompt = createPromptSystemPrompt("bugfix");
+
+    expect(prompt).toContain("background on the same effort");
+    expect(prompt).toContain("from their presence alone");
+    // The rule must stay scoped to the git state: a categorical ban would
+    // contradict the bugfix skeleton's Symptom/Suspected cause sections.
+    expect(prompt).not.toContain("Never assert");
   });
 
   it("swaps in the bugfix skeleton with a failing-test-first rule", () => {

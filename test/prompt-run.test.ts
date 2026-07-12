@@ -86,6 +86,29 @@ describe("inferPromptKind", () => {
     expect(inferPromptKind("uploads failing on retry")).toBe("bugfix");
     expect(inferPromptKind("add dark mode")).toBe("feature");
   });
+
+  it("ignores incidental failure words in the requirements body", () => {
+    const feature = [
+      "Add configurable retry with exponential backoff to the uploader",
+      "",
+      "Requirements:",
+      "Retry only transient failures: network errors and HTTP 5xx responses.",
+      "Log the attempt number and the HTTP status (or error) per attempt.",
+    ].join("\n");
+
+    expect(inferPromptKind(feature)).toBe("feature");
+  });
+
+  it("still catches a bug stated only below a neutral title line", () => {
+    const buried = [
+      "Harden the uploader",
+      "",
+      "Requirements:",
+      "It currently crashes on empty files; fix the crash and add a regression test.",
+    ].join("\n");
+
+    expect(inferPromptKind(buried)).toBe("bugfix");
+  });
 });
 
 describe("stripMarkdownFence", () => {
@@ -112,9 +135,11 @@ describe("createPromptRun", () => {
     ];
 
     expect(systemPrompt).toContain("## Objective");
-    expect(userPrompt).toContain("Recent commits on this branch:");
+    expect(userPrompt).toContain(
+      "Commits already on this branch (background, not the task):",
+    );
     expect(userPrompt).toContain("(none yet)");
-    expect(userPrompt).not.toContain("Files changed so far");
+    expect(userPrompt).not.toContain("Files already changed");
   });
 
   it("unwraps a fence-wrapped model reply", async () => {

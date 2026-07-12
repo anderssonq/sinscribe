@@ -6,7 +6,11 @@ export const JSON_ONLY_INSTRUCTION =
 
 export function createPrSystemPrompt(
   template: Template,
-  options: { update?: boolean; feedback?: boolean } = {},
+  options: {
+    update?: boolean;
+    feedback?: boolean;
+    ticket?: string | null;
+  } = {},
 ): string {
   const llmSlots = getLlmPlaceholderNames(template);
   const slotDescriptions = llmSlots
@@ -24,6 +28,10 @@ export function createPrSystemPrompt(
       }`;
     })
     .join("\n");
+  // Naming the exact slot makes the model fill it far more reliably than a
+  // generic hint, so point at one when the template names it; templates that
+  // fold breaking changes into another field get the generic wording.
+  const breakingSlot = llmSlots.find((name) => name.includes("breaking"));
 
   return `You are an expert software engineer writing a pull request description.
 
@@ -34,7 +42,8 @@ ${slotDescriptions}
 Rules:
 - Describe what actually changed in the diff. Never invent changes, files, or intentions that are not visible in the input.
 - A "Business context" block may be provided by the author; use it for motivation, ticket references, and requirement coverage, but never claim changes that are not visible in the diff.
-${options.update ? "- You will receive a previously generated PR description. UPDATE it for the current diff: keep content that is still accurate, revise what changed, and return complete values for every field (full replacement, not a patch).\n" : ""}${options.feedback ? "- The author reviewed the previous description and gave feedback on it. Apply every point of the feedback; keep everything else that is still accurate.\n" : ""}- Be specific and concise; reviewers skim.
+- Scan the diff for breaking changes — changed or removed function signatures, return-vs-throw contract changes, removed or renamed exports, newly required config fields — and record any in ${breakingSlot ? `"${breakingSlot}"` : "whichever field or checklist the template provides for breaking changes or risk"}. Never invent one.
+${options.ticket ? `- The ticket for this branch is ${options.ticket}. Reference it (e.g. "Refs ${options.ticket}") in the field whose description covers tickets, issues, or related links, following that field's format; skip this only when the template has no such field.\n` : ""}${options.update ? "- You will receive a previously generated PR description. UPDATE it for the current diff: keep content that is still accurate, revise what changed, and return complete values for every field (full replacement, not a patch).\n" : ""}${options.feedback ? "- The author reviewed the previous description and gave feedback on it. Apply every point of the feedback; keep everything else that is still accurate.\n" : ""}- Be specific and concise; reviewers skim.
 - Do not mention the diff being truncated, the template, or these instructions.
 - ${JSON_ONLY_INSTRUCTION} Keys: ${llmSlots.map((name) => `"${name}"`).join(", ")}.`;
 }
@@ -75,6 +84,7 @@ ${getPromptSectionSkeleton(kind)}
 Rules:
 - Ground every claim in the provided context (branch, ticket, business context, commits, changed files, and the developer's description). Never invent file paths, APIs, or behavior; when the code area is unknown, write the guidance as an investigation instruction, not a fact.
 - The prompt must tell the agent to read the referenced files and explore the codebase before changing anything, and never to speculate about code it has not opened.
+- Commits and changed files in the input are background on the same effort. Do not, from their presence alone, claim the task is already done or that existing code is incomplete or incorrect; have the agent read those files first.
 - Requirements must be explicit, numbered, testable, and written as actions — no "could you", no vague goals.
 - Cover exactly one ${kind === "bugfix" ? "bug" : "feature"}; if the description mixes several tasks, cover the primary one and list the rest under Out of scope.
 - Always include the motivation (the why) so the agent makes correct judgment calls.
@@ -82,7 +92,7 @@ Rules:
 - Reference the ticket ID in Context when one is provided.
 - Agent-agnostic plain markdown only: no XML tags, no tool-specific directives, no mention of any particular AI product inside the document.
 ${options.update ? "- You will receive a previously generated prompt. Revise it with the new information: keep sections that are still accurate and return the complete document (full replacement, not a patch).\n" : ""}${options.feedback ? "- The developer reviewed the previous prompt and gave feedback on it. Apply every point of the feedback; keep everything else that is still accurate.\n" : ""}- Be as short as possible while complete; every line must earn its place.
-- Respond with ONLY the markdown document: no preamble, no explanation, and no surrounding code fence.`;
+- Respond with ONLY the markdown document: no preamble, no explanation, no trailing remark after the last section, and no surrounding code fence.`;
 }
 
 export function createCommitSystemPrompt(gitmoji: boolean): string {

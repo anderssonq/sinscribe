@@ -85,8 +85,11 @@ async function gatherPrContext(spec: PrSpec, cwd: string): Promise<PrContext> {
     );
   }
 
-  const ticket =
+  // Empty/whitespace ticket values (e.g. --ticket "" or a custom ticket
+  // pattern with an empty capture) count as no ticket.
+  const rawTicket =
     spec.ticket ?? extractTicketId(branch) ?? session?.context?.ticket ?? null;
+  const ticket = rawTicket?.trim() || null;
   const [diff, log] = await Promise.all([
     getLocalDiff(cwd, baseRef, { staged: spec.staged }),
     getRangeLog(cwd, baseRef),
@@ -288,6 +291,7 @@ export async function createPrRun(
     const systemPrompt = createPrSystemPrompt(context.template, {
       update: previousDescription !== null,
       feedback: feedback !== null,
+      ticket: context.ticket,
     });
     const userPrompt = buildPrUserPrompt(
       context,

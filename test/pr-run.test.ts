@@ -127,6 +127,35 @@ describe("createPrRun", () => {
     expect(secondUser).toContain(first);
   });
 
+  it("threads the actual ticket into the system prompt when one is provided", async () => {
+    runSingleShotMock.mockResolvedValue(modelReply("Adds login."));
+
+    const run = await createPrRun(makeSpec({ ticket: "ABC-123" }), FLAGS, repo);
+
+    await run.generate(null);
+
+    const [withTicket] = runSingleShotMock.mock.calls[0] as [string, string];
+
+    expect(withTicket).toContain('"Refs ABC-123"');
+
+    runSingleShotMock.mockClear();
+
+    // An empty --ticket value counts as no ticket at all.
+    const emptyTicket = await createPrRun(
+      makeSpec({ ticket: "" }),
+      FLAGS,
+      repo,
+    );
+
+    expect(emptyTicket.meta.ticket).toBeNull();
+
+    await emptyTicket.generate(null);
+
+    const [withoutTicket] = runSingleShotMock.mock.calls[0] as [string, string];
+
+    expect(withoutTicket).not.toContain("Refs");
+  });
+
   it("re-asks exactly once when the model returns invalid JSON", async () => {
     runSingleShotMock
       .mockResolvedValueOnce({ text: "not json at all", modelId: "test" })

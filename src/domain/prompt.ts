@@ -27,11 +27,19 @@ type PromptSpec = Extract<CommandSpec, { name: "prompt" }>;
 
 export type PromptKind = NonNullable<PromptSpec["type"]>;
 
+const STRONG_BUGFIX_KEYWORDS = /\b(fix|bug|broken|crash|regression|defect)\b/iu;
+const WEAK_BUGFIX_KEYWORDS = /\b(error|fail(s|ing|ure)?|incorrect|wrong)\b/iu;
+
 /** Cheap keyword-based kind inference for deterministic dry runs. */
 export function inferPromptKind(description: string): PromptKind {
-  return /\b(fix|bug|broken|crash|error|regression|fail(s|ing|ure)?|defect|incorrect|wrong)\b/iu.test(
-    description,
-  )
+  // Unambiguous bugfix words count anywhere; words requirement bodies use
+  // incidentally ("error", "failures") only count on the leading intent line,
+  // so acceptance criteria never flip a feature to bugfix.
+  const intent =
+    description.split("\n").find((line) => line.trim().length > 0) ?? "";
+
+  return STRONG_BUGFIX_KEYWORDS.test(description) ||
+    WEAK_BUGFIX_KEYWORDS.test(intent)
     ? "bugfix"
     : "feature";
 }
@@ -146,12 +154,12 @@ function buildPromptUserPrompt(
           .join("\n")
       : null,
     "",
-    "Recent commits on this branch:",
+    "Commits already on this branch (background, not the task):",
     context.log || "(none yet)",
     context.changedFiles
       ? [
           "",
-          "Files changed so far vs the base branch:",
+          "Files already changed vs the base branch (background, not the task):",
           context.changedFiles,
         ].join("\n")
       : null,
