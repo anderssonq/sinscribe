@@ -11,6 +11,24 @@ export const SINSCRIBE_PROVIDER_ENV_KEY = "SINSCRIBE_PROVIDER";
 export const SINSCRIBE_MODEL_ID_ENV_KEY = "SINSCRIBE_MODEL_ID";
 export const SINSCRIBE_TICKET_PATTERN_ENV_KEY = "SINSCRIBE_TICKET_PATTERN";
 export const SINSCRIBE_THEME_ENV_KEY = "SINSCRIBE_THEME";
+
+/**
+ * Env vars holding secret API credentials. Scrubbed from the shell environment
+ * handed to the agentic backend (see buildShellEnv in src/llm/agent.ts) so that
+ * prompt-injected repository content cannot read or exfiltrate them through the
+ * shell tool. Deliberately excludes base URLs and SINSCRIBE_* config, which are
+ * not secret.
+ */
+export const SECRET_ENV_KEYS = [
+  BASETEN_API_KEY_ENV_KEY,
+  FIREWORKS_API_KEY_ENV_KEY,
+  OPENAI_API_KEY_ENV_KEY,
+  OPENAI_COMPATIBLE_API_KEY_ENV_KEY,
+  ANTHROPIC_API_KEY_ENV_KEY,
+  OPENROUTER_API_KEY_ENV_KEY,
+  OPENCODE_GO_API_KEY_ENV_KEY,
+] as const;
+
 export const DEFAULT_PROVIDER = "opencode-go";
 export const OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
 export const OPENCODE_GO_BASE_URL = "https://opencode.ai/zen/go/v1";

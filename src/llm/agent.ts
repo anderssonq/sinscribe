@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import path from "node:path";
 import { MemorySaver } from "@langchain/langgraph";
 import { createDeepAgent, LocalShellBackend } from "deepagents";
+import { SECRET_ENV_KEYS } from "../constants.js";
 import {
   emitDebug,
   getContentText,
@@ -50,10 +51,16 @@ export async function runAgent(
     tools: [],
     checkpointer,
     backend: new LocalShellBackend({
-      // Shell commands must see the user's real environment (PATH, HOME,
-      // SSH agent, git config) — the default is an EMPTY env, which only
-      // works on macOS by accident of /bin/sh's built-in PATH fallback.
-      inheritEnv: true,
+      // Shell commands see the user's real environment (PATH, HOME, SSH agent,
+      // git config) but NOT secret API keys: buildShellEnv() passes the full
+      // env minus SECRET_ENV_KEYS with inheritEnv:false, so prompt-injected
+      // repository content cannot read or exfiltrate credentials through the
+      // shell tool. The model already holds the key (resolveModel above), so
+      // the LLM call is unaffected. (A bare empty env would also break PATH on
+      // non-macOS, which is why we pass the real env explicitly rather than
+      // relying on the default.)
+      inheritEnv: false,
+      env: buildShellEnv(),
       maxOutputBytes: 100_000,
       rootDir: cwd,
       timeout: 120,
@@ -104,6 +111,29 @@ export async function runAgent(
     text: parts.join("").trim(),
     modelId,
   };
+}
+
+/**
+ * The environment handed to the agent's shell tool: the caller's real env
+ * (PATH, HOME, SSH agent, git config, …) with every secret API-key variable
+ * removed. Scrubbing the keys means prompt-injected repository content cannot
+ * read or exfiltrate them via the shell; the model itself already received the
+ * credential through resolveModel(), so LLM calls are unaffected. Exported so
+ * the scrub is unit-testable without spawning a shell.
+ */
+export function buildShellEnv(
+  source: NodeJS.ProcessEnv = process.env,
+): Record<string, string> {
+  const secrets = new Set<string>(SECRET_ENV_KEYS);
+  const env: Record<string, string> = {};
+
+  for (const [key, value] of Object.entries(source)) {
+    if (value !== undefined && !secrets.has(key)) {
+      env[key] = value;
+    }
+  }
+
+  return env;
 }
 
 export function createThreadId(cwd: string): string {
