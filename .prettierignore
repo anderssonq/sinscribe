@@ -1,3 +1,7 @@
 coverage/
 dist/
 pnpm-lock.yaml
+
+# Changesets-managed generated files (rewritten by `changeset version`, not hand-formatted)
+.changeset/pre.json
+CHANGELOG.md

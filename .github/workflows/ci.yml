@@ -28,6 +28,7 @@ jobs:
     needs: checks
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    environment: RELEASE
     permissions:
       contents: write
       pull-requests: write
