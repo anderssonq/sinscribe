@@ -3,6 +3,13 @@
   "version": "0.0.1",
   "description": "A git-centric developer-workflow assistant CLI: PR descriptions, commit messages, branch names, project context briefs, and AI agent context files.",
   "license": "MIT",
+  "author": "Andersson Quintero (https://github.com/anderssonq)",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/anderssonq/sinscribe.git"
+  },
+  "homepage": "https://github.com/anderssonq/sinscribe#readme",
+  "bugs": "https://github.com/anderssonq/sinscribe/issues",
   "type": "module",
   "packageManager": "pnpm@10.30.0",
   "engines": {
@@ -14,7 +21,8 @@
   "files": [
     "dist",
     "templates",
-    "README.md"
+    "README.md",
+    "LICENSE"
   ],
   "keywords": [
     "ai",
@@ -37,6 +45,10 @@
     "lint:check": "eslint .",
     "prebuild": "pnpm run clean",
     "prepack": "pnpm run build",
+    "prepublishOnly": "pnpm run lint:check && pnpm run format:check && pnpm test && pnpm run build",
+    "changeset": "changeset",
+    "version-packages": "changeset version",
+    "release": "changeset publish",
     "start": "node dist/cli.js",
     "test": "vitest run"
   },
@@ -52,6 +64,7 @@
     "yaml": "^2.6.0"
   },
   "devDependencies": {
+    "@changesets/cli": "^2.31.0",
     "@eslint/js": "^10.0.1",
     "@types/node": "^22.10.2",
     "@types/react": "^18.3.17",
