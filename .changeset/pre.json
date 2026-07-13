@@ -5,6 +5,7 @@
     "sinscribe": "0.0.1"
   },
   "changesets": [
+    "agent-shell-env-scrub",
     "initial-beta-release"
   ]
 }
