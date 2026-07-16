@@ -1,5 +1,5 @@
 import { HumanMessage, SystemMessage } from "@langchain/core/messages";
-import { getProviderLabel } from "../constants.js";
+import { getProviderAuthKind, getProviderLabel } from "../constants.js";
 import {
   classifyLlmError,
   InvalidModelJsonError,
@@ -8,6 +8,12 @@ import {
 } from "./errors.js";
 import { emitDebug, getContentText, type RunCallbacks } from "./events.js";
 import { resolveModel } from "./model.js";
+import {
+  createInactivityWatchdog,
+  LLM_INACTIVITY_MS,
+  raceAbort,
+  SINGLE_SHOT_TOTAL_MS,
+} from "./watchdog.js";
 
 export type SingleShotOptions = RunCallbacks & {
   modelId?: string | null;
@@ -45,20 +51,47 @@ export async function runSingleShot(
     new HumanMessage(userPrompt),
   ];
 
+  // One deadline across every retry attempt: each attempt's watchdog gets
+  // only the remaining share, so retried stalls cannot multiply the cap.
+  const overallDeadline = Date.now() + SINGLE_SHOT_TOTAL_MS;
+
   try {
     const text = await withRetry(
       async () => {
         // parts is per-attempt so a mid-stream failure discards partial text.
         const parts: string[] = [];
-        const stream = await model.stream(messages);
+        // The watchdog aborts stalled calls (no chunk for LLM_INACTIVITY_MS,
+        // or the shared overall deadline) instead of hanging forever; a
+        // timeout classifies as a retryable network error, so withRetry
+        // surfaces visible retries rather than a frozen spinner.
+        const watchdog = createInactivityWatchdog({
+          inactivityMs: LLM_INACTIVITY_MS,
+          totalMs: Math.max(1_000, overallDeadline - Date.now()),
+        });
 
-        for await (const chunk of stream) {
-          const text = getContentText(chunk.content);
+        try {
+          const stream = await model.stream(messages, {
+            signal: watchdog.signal,
+          });
 
-          if (text.length > 0) {
-            parts.push(text);
-            options.onEvent?.({ type: "text", text });
+          for await (const chunk of raceAbort(stream, watchdog)) {
+            watchdog.touch();
+
+            const text = getContentText(chunk.content);
+
+            if (text.length > 0) {
+              parts.push(text);
+              options.onEvent?.({ type: "text", text });
+            }
           }
+
+          // Some SDKs end the stream quietly on abort instead of throwing;
+          // a timed-out attempt must fail, not return partial text.
+          if (watchdog.timeoutError !== null) {
+            throw watchdog.timeoutError;
+          }
+        } finally {
+          watchdog.dispose();
         }
 
         return parts.join("").trim();
@@ -77,6 +110,7 @@ export async function runSingleShot(
   } catch (error) {
     throw toFriendlyError(error, {
       providerLabel: getProviderLabel(provider),
+      authKind: getProviderAuthKind(provider),
       // A retryable class reaching here means every attempt was spent.
       exhaustedRetries: classifyLlmError(error).retryable,
     });

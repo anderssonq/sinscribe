@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Box, Text, useInput } from "ink";
-import { LOGO_LINES, logoVisible, useTerminalSize } from "./logo.js";
+import { MENU_PANEL_TITLE } from "./branding.js";
 import { MENU_ITEMS, type MenuChoice, type MenuItem } from "./menu-items.js";
 import { useOnClick, useOnWheel } from "./mouse.js";
+import { Panel } from "./panel.js";
 import {
   appendInput,
   deleteLast,
@@ -10,6 +11,7 @@ import {
   wrapLines,
 } from "./text-buffer.js";
 import { theme } from "./theme.js";
+import { useViewport } from "./viewport.js";
 
 /**
  * True for SGR mouse sequences that Ink surfaces as literal text ("[<0;12;5M")
@@ -21,12 +23,12 @@ function isMouseNoise(value: string): boolean {
 }
 
 /**
- * Rows the SelectList chrome occupies outside its item window: the header
- * above, the picker title, the box's two borders, its two scroll indicators,
- * the footer hint, and a cushion. The logo's rows (when shown) are subtracted
- * separately so a long list windows to what actually fits on screen.
+ * Rows the SelectList adds around its item window beyond the shared
+ * logo/header chrome (already subtracted by useViewport's contentRows): the
+ * picker title, the box's two borders, its two scroll indicators, and the
+ * footer hint, minus the viewport cushion.
  */
-const SELECT_CHROME_ROWS = 12;
+const SELECT_EXTRA_ROWS = 4;
 
 /** One selectable row: a Box registered as a click target (hooks can't go in loops). */
 function ClickableRow({
@@ -94,14 +96,15 @@ export function MainMenu({
     );
   });
 
-  const { columns } = useTerminalSize();
-  const boxWidth = Math.min(62, columns);
+  const { columns, contentRows } = useViewport();
+  // Clamp between a readable minimum and the classic 62-column cap, while
+  // leaving one spare column on each side of narrow terminals.
+  const boxWidth = Math.max(30, Math.min(62, columns - 2));
   // 2 border columns + paddingX 1 on each side.
   const innerWidth = Math.max(0, boxWidth - 4);
-  const title = "─ Acciones ";
-  const topLine = `╭${title}${"─".repeat(Math.max(0, boxWidth - 2 - title.length))}╮`;
 
   const rows: ReactNode[] = [];
+  let cursorRow = 0;
   let previousSection: string | undefined;
 
   items.forEach((item, index) => {
@@ -115,6 +118,10 @@ export function MainMenu({
     }
 
     const focused = index === cursor;
+
+    if (focused) {
+      cursorRow = rows.length;
+    }
     const labelColor = item.disabled
       ? theme.dim
       : item.danger
@@ -175,21 +182,38 @@ export function MainMenu({
     }
   });
 
+  // Window the menu rows only when they cannot fit: a frame taller than the
+  // terminal scrolls the alt screen and leaves redraw residue. The budget
+  // leaves room for the panel borders, the footer, the focused item's
+  // wrapping hint row, and the two overflow-indicator rows; the window
+  // stays centered on the cursor.
+  const maxMenuRows = Math.max(4, contentRows - 6);
+  let shownRows = rows;
+  let hiddenAbove = 0;
+  let hiddenBelow = 0;
+
+  if (rows.length > maxMenuRows) {
+    const start = Math.min(
+      rows.length - maxMenuRows,
+      Math.max(0, cursorRow - Math.floor(maxMenuRows / 2)),
+    );
+
+    shownRows = rows.slice(start, start + maxMenuRows);
+    hiddenAbove = start;
+    hiddenBelow = rows.length - (start + maxMenuRows);
+  }
+
   return (
     <Box flexDirection="column">
-      <Text color={theme.border} wrap="truncate-end">
-        {topLine}
-      </Text>
-      <Box
-        borderColor={theme.border}
-        borderStyle="round"
-        borderTop={false}
-        flexDirection="column"
-        paddingX={1}
-        width={boxWidth}
-      >
-        {rows}
-      </Box>
+      <Panel title={MENU_PANEL_TITLE} width={boxWidth}>
+        {hiddenAbove > 0 ? (
+          <Text color={theme.dim}>{`  ↑ ${hiddenAbove} more`}</Text>
+        ) : null}
+        {shownRows}
+        {hiddenBelow > 0 ? (
+          <Text color={theme.dim}>{`  ↓ ${hiddenBelow} more`}</Text>
+        ) : null}
+      </Panel>
       <Text color={theme.faint}>↑↓ or j/k move · enter select · q quit</Text>
     </Box>
   );
@@ -290,9 +314,8 @@ export function SelectList({
   // viewport makes the alt-screen scroll, and Ink then can't erase the taller
   // frame when a shorter view redraws over it — leaving residue (a duplicated
   // logo). Keep the cursor centered in the window so it is always visible.
-  const { columns, rows } = useTerminalSize();
-  const logoRows = logoVisible(columns, rows) ? LOGO_LINES.length : 0;
-  const visible = Math.max(3, rows - logoRows - SELECT_CHROME_ROWS);
+  const { contentRows } = useViewport();
+  const visible = Math.max(3, contentRows - SELECT_EXTRA_ROWS);
   const maxStart = Math.max(0, items.length - visible);
   const start = Math.min(
     maxStart,
@@ -355,9 +378,8 @@ type PreviewPaneProps = {
  * roughly aligned.
  */
 export function PreviewPane({ title, text, grow }: PreviewPaneProps) {
-  const { columns, rows } = useTerminalSize();
-  const logoRows = logoVisible(columns, rows) ? LOGO_LINES.length : 0;
-  const cap = Math.max(6, rows - logoRows - SELECT_CHROME_ROWS);
+  const { contentRows } = useViewport();
+  const cap = Math.max(6, contentRows - SELECT_EXTRA_ROWS);
   const lines = text.split("\n");
   const shown = lines.slice(0, cap);
   const hidden = lines.length - shown.length;
@@ -384,12 +406,11 @@ export function PreviewPane({ title, text, grow }: PreviewPaneProps) {
   );
 }
 
-/** Rows of chrome around a ScrollView viewport in the menu layout: the header
- *  box + subtitle + margin, this view's title and two scroll indicators, and a
- *  cushion. The logo's rows are subtracted separately. Overestimated on purpose
- *  — a viewport taller than the terminal makes the alt-screen scroll and leaves
- *  redraw residue, so it is safer to show a few rows fewer than a few too many. */
-const SCROLL_CHROME_ROWS = 12;
+/** Rows a ScrollView adds around its window beyond the shared logo/header
+ *  chrome (already in useViewport's contentRows): this view's title and two
+ *  scroll indicators, plus a small cushion — over-tall alt-screen frames
+ *  leave redraw residue, so fewer rows is always the safer direction. */
+const SCROLL_EXTRA_ROWS = 4;
 
 /** Wheel notches move a few rows at a time; keys move one row / one page. */
 const SCROLL_WHEEL_STEP = 3;
@@ -410,14 +431,13 @@ type ScrollViewProps = {
  * exits. Mirrors HelpView so the two scroll experiences feel identical.
  */
 export function ScrollView({ title, text, onExit, isActive }: ScrollViewProps) {
-  const { columns, rows } = useTerminalSize();
+  const { columns, contentRows } = useViewport();
   const [offset, setOffset] = useState(0);
 
   const width = Math.max(20, columns - 2);
   const lines = useMemo(() => wrapLines(text, width), [text, width]);
 
-  const logoRows = logoVisible(columns, rows) ? LOGO_LINES.length : 0;
-  const visible = Math.max(4, rows - logoRows - SCROLL_CHROME_ROWS);
+  const visible = Math.max(4, contentRows - SCROLL_EXTRA_ROWS);
 
   const maxOffset = Math.max(0, lines.length - visible);
   const clamped = Math.min(offset, maxOffset);

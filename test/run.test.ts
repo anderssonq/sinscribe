@@ -31,6 +31,20 @@ describe("runGit", () => {
 
     expect(output).toMatch(/not a git repository/iu);
   });
+
+  it("throws a clear timeout error instead of hanging", async () => {
+    await initRepo(dir);
+
+    // hash-object --stdin blocks reading stdin (which stays open), so the
+    // subprocess can only end via the timeout kill.
+    try {
+      await runGit(dir, ["hash-object", "--stdin"], { timeoutMs: 200 });
+      expect.unreachable("runGit should have thrown on timeout");
+    } catch (error) {
+      expect(error).toBeInstanceOf(GitCommandError);
+      expect((error as GitCommandError).message).toMatch(/timed out/u);
+    }
+  });
 });
 
 describe("tryGit", () => {
@@ -54,6 +68,16 @@ describe("tryGit", () => {
 
   it("returns null when git exits non-zero", async () => {
     const result = await tryGit(dir, ["rev-parse", "--verify", "HEAD"]);
+
+    expect(result).toBeNull();
+  });
+
+  it("returns null on timeout, keeping the swallow-to-null contract", async () => {
+    await initRepo(dir);
+
+    const result = await tryGit(dir, ["hash-object", "--stdin"], {
+      timeoutMs: 200,
+    });
 
     expect(result).toBeNull();
   });

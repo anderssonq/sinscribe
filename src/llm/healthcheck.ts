@@ -4,6 +4,8 @@
 import {
   getProviderApiKeyEnvKey,
   getProviderBaseUrlEnvKey,
+  getProviderCommand,
+  getProviderLabel,
   providerRequiresBaseUrl,
   resolveProviderBaseUrl,
   type SinscribeProvider,
@@ -39,6 +41,17 @@ function stripTrailingSlash(url: string): string {
 function buildRequest(
   input: HealthcheckInput,
 ): { url: string; headers: Record<string, string> } | { error: string } {
+  const localCli = getProviderCommand(input.provider);
+
+  if (localCli !== null) {
+    return {
+      error:
+        `${getProviderLabel(input.provider)} has no API key to test — the ` +
+        `${localCli.command} CLI owns its own sign-in. Verify it with ` +
+        `\`${localCli.command} chat --no-interactive "hi"\`.`,
+    };
+  }
+
   if (input.provider === "anthropic") {
     const base =
       resolveProviderBaseUrl(input.provider) ?? ANTHROPIC_DEFAULT_API_URL;
@@ -145,7 +158,7 @@ export async function testProviderConnection(
   if (response.status === 401 || response.status === 403) {
     return {
       ok: false,
-      message: `API key rejected (HTTP ${response.status}) — check the ${getProviderApiKeyEnvKey(input.provider)} value.`,
+      message: `API key rejected (HTTP ${response.status}) — check the ${getProviderApiKeyEnvKey(input.provider) ?? "API key"} value.`,
     };
   }
 

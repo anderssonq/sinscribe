@@ -7,6 +7,7 @@ coverage/
 
 # Internal / not-for-public (kept locally, never committed)
 .claude/skills/
+AGENT_PROMPT.md
 ARCHITECTURE.md
 RELEASE_PLAN_PROMPT.md
 TODO.md

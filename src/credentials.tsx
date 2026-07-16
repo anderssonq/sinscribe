@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Box, Text, useApp } from "ink";
 import {
   getProviderApiKeyEnvKey,
+  getProviderAuthKind,
   getProviderLabel,
   resolveConfiguredProvider,
   type SinscribeProvider,
@@ -21,7 +22,13 @@ export function needsCredentialSetup(
 
   const provider = resolveConfiguredProvider(overrideProvider);
 
-  return !process.env[getProviderApiKeyEnvKey(provider)];
+  if (getProviderAuthKind(provider) === "local-cli") {
+    // Nothing for us to collect or store — the child CLI owns its sign-in.
+    // A missing/unauthenticated binary reports itself at run time.
+    return false;
+  }
+
+  return !process.env[getProviderApiKeyEnvKey(provider) ?? ""];
 }
 
 type InitSetupProps = {
@@ -49,7 +56,7 @@ export function InitSetup({
   function handleSubmit(value: string) {
     const apiKey = value.trim();
 
-    if (apiKey.length === 0) {
+    if (apiKey.length === 0 || apiKeyEnvKey === null) {
       return;
     }
 

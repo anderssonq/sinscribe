@@ -4,10 +4,12 @@ import type { GlobalFlags } from "../commands.js";
 import { InitSetup, needsCredentialSetup } from "../credentials.js";
 import { executeCommand } from "../domain/execute.js";
 import { createThreadId } from "../llm/agent.js";
+import { Panel } from "./panel.js";
 import { appendEvent, Header, RunLog, type LogItem } from "./run-view.js";
 import { getErrorMessage, isDebugMode } from "./shared.js";
 import { Spinner } from "./spinner.js";
 import { theme } from "./theme.js";
+import { useViewport } from "./viewport.js";
 
 type ChatTurn = {
   id: number;
@@ -26,6 +28,7 @@ export function ChatApp({
   initialMessage: string | null;
 }) {
   const app = useApp();
+  const { contentRows } = useViewport();
   const [turns, setTurns] = useState<ChatTurn[]>([]);
   const [input, setInput] = useState("");
   const [running, setRunning] = useState(false);
@@ -161,27 +164,55 @@ export function ChatApp({
     );
   }
 
+  // Window the history so the frame never outgrows the terminal (an
+  // over-tall Ink frame redraws glitchily): earlier turns collapse to their
+  // "> message" line — capped to what fits, oldest dropped first — and the
+  // latest turn's log gets the remaining rows.
+  const allEarlier = turns.slice(0, -1);
+  const maxEarlier = Math.max(0, contentRows - 10);
+  const earlier = allEarlier.slice(Math.max(0, allEarlier.length - maxEarlier));
+  const droppedTurns = allEarlier.length - earlier.length;
+  const current = turns.at(-1);
+  const currentLogRows = Math.max(
+    4,
+    // input box (3 rows) + prompt/error lines + dropped-turns indicator.
+    contentRows - earlier.length - 6,
+  );
+
   return (
     <Box flexDirection="column">
       <Header subtitle="Interactive session — /exit to quit, /clear for a new thread" />
-      {turns.map((turn) => (
-        <Box flexDirection="column" key={turn.id} marginBottom={1}>
+      {droppedTurns > 0 ? (
+        <Text color={theme.dim}>… {droppedTurns} earlier turns</Text>
+      ) : null}
+      {earlier.map((turn) => (
+        <Text key={turn.id} wrap="truncate-end">
+          <Text color={theme.accentAlt}>{"> "}</Text>
+          {turn.message}
+          <Text color={turn.error !== null ? theme.error : theme.dim}>
+            {turn.error !== null ? "  ! error" : "  ✓"}
+          </Text>
+        </Text>
+      ))}
+      {current ? (
+        <Box flexDirection="column" key={current.id} marginBottom={1}>
           <Text>
             <Text color={theme.accentAlt}>{"> "}</Text>
-            {turn.message}
+            {current.message}
           </Text>
           <Box flexDirection="column" marginLeft={2}>
             <RunLog
-              log={turn.log}
-              waiting={!turn.done && turn.error === null}
+              log={current.log}
+              maxRows={currentLogRows}
+              waiting={!current.done && current.error === null}
             />
-            {turn.error !== null ? (
-              <Text color={theme.error}>Error: {turn.error}</Text>
+            {current.error !== null ? (
+              <Text color={theme.error}>Error: {current.error}</Text>
             ) : null}
           </Box>
         </Box>
-      ))}
-      <Box borderStyle="round" borderColor={theme.border} paddingX={1}>
+      ) : null}
+      <Panel>
         <Text>
           <Text color={theme.accentAlt}>{">"}</Text>{" "}
           {running ? (
@@ -192,7 +223,7 @@ export function ChatApp({
             <Text color={theme.dim}>Ask about the repo, or /exit</Text>
           )}
         </Text>
-      </Box>
+      </Panel>
     </Box>
   );
 }

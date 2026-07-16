@@ -1,4 +1,4 @@
-import { access, writeFile } from "node:fs/promises";
+import { writeFile } from "node:fs/promises";
 import { useEffect, useRef, useState } from "react";
 import { Box, Text } from "ink";
 import type { CommandSpec, GlobalFlags } from "../commands.js";
@@ -10,10 +10,15 @@ import {
 } from "../domain/pr-export.js";
 import { copyToClipboard } from "../util/clipboard.js";
 import { MultilinePrompt, ScrollView, SelectList } from "./menu-view.js";
+import { Panel, TailPanel } from "./panel.js";
+import {
+  fileExists,
+  isWarningLine,
+  useReviewVisibleLines,
+} from "./review-shared.js";
 import { appendEvent, RunLog, type LogItem } from "./run-view.js";
 import { getErrorMessage, isDebugMode } from "./shared.js";
 import { Spinner } from "./spinner.js";
-import { visibleTail } from "./text-buffer.js";
 import { theme } from "./theme.js";
 
 type PrSpec = Extract<CommandSpec, { name: "pr" }>;
@@ -41,22 +46,12 @@ type Phase =
   | { phase: "exporting"; description: string }
   | { phase: "done"; description: string; summary: string[] };
 
-/** Lines of the candidate description shown during review (tail-clamped). */
-const REVIEW_VISIBLE_LINES = 16;
-
-async function fileExists(filePath: string): Promise<boolean> {
-  try {
-    await access(filePath);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-/** Export steps report failures as summary lines instead of aborting. */
-function isWarningLine(line: string): boolean {
-  return /failed|could not|skipped/iu.test(line);
-}
+/**
+ * Rows this flow renders around the tail-clamped description during review:
+ * the heading, panel borders, the hidden-count note, and the select list.
+ * Passed to useReviewVisibleLines so the clamp adapts to terminal height.
+ */
+const REVIEW_EXTRA_ROWS = 12;
 
 type PrReviewFlowProps = {
   spec: PrSpec;
@@ -77,6 +72,7 @@ export function PrReviewFlow({
   isActive,
   onDone,
 }: PrReviewFlowProps) {
+  const reviewRows = useReviewVisibleLines(REVIEW_EXTRA_ROWS);
   const [phase, setPhase] = useState<Phase>({
     phase: "generating",
     feedback: null,
@@ -292,32 +288,14 @@ export function PrReviewFlow({
   }
 
   if (phase.phase === "review") {
-    const { lines, hidden } = visibleTail(
-      phase.description,
-      REVIEW_VISIBLE_LINES,
-    );
-
     return (
       <Box flexDirection="column">
         <Text color={theme.accent}>Generated PR description</Text>
-        <Box
-          borderColor={theme.border}
-          borderStyle="round"
-          flexDirection="column"
-          paddingX={1}
-        >
-          {hidden > 0 ? (
-            <Text color={theme.dim}>
-              … {hidden} more line{hidden === 1 ? "" : "s"} above — pick “View
-              full” to scroll it all
-            </Text>
-          ) : null}
-          {lines.map((line, index) => (
-            <Text key={index} wrap="wrap">
-              {line.length > 0 ? line : " "}
-            </Text>
-          ))}
-        </Box>
+        <TailPanel
+          hiddenHint=" — pick “View full” to scroll it all"
+          maxRows={reviewRows}
+          text={phase.description}
+        />
         <SelectList
           isActive={isActive}
           key="review"
@@ -522,14 +500,9 @@ export function PrReviewFlow({
   return (
     <Box flexDirection="column">
       <Text color={theme.accent}>Approved PR description</Text>
-      <Box
-        borderColor={theme.border}
-        borderStyle="round"
-        flexDirection="column"
-        paddingX={1}
-      >
+      <Panel>
         <Text wrap="wrap">{phase.description}</Text>
-      </Box>
+      </Panel>
       {phase.summary.map((line, index) =>
         isWarningLine(line) ? (
           <Text color={theme.accent} key={index}>

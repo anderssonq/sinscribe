@@ -60,6 +60,10 @@ describe("classifyLlmError", () => {
       "rate-limit",
     );
     expect(classifyLlmError(new Error("fetch failed")).klass).toBe("network");
+    // The OpenAI SDK's APIConnectionError message carries no code at all.
+    expect(classifyLlmError(new Error("Connection error.")).klass).toBe(
+      "network",
+    );
     expect(
       classifyLlmError(new Error("Incorrect API key provided")).klass,
     ).toBe("auth");
