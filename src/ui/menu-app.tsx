@@ -8,6 +8,8 @@ import {
 import {
   getDefaultModelId,
   getProviderApiKeyEnvKey,
+  getProviderAuthKind,
+  getProviderCommand,
   getProviderLabel,
   getProviderModelOptions,
   isValidModelId,
@@ -43,7 +45,9 @@ import { renderTemplatePreview } from "../templates/render.js";
 import { loadTemplates, type TemplateEntry } from "../templates/registry.js";
 import { DocsReviewFlow } from "./docs-review.js";
 import { HelpView } from "./help-view.js";
-import { Logo, useTerminalSize } from "./logo.js";
+import { Logo } from "./logo.js";
+import { Panel } from "./panel.js";
+import { useViewport } from "./viewport.js";
 import {
   buildMenuItems,
   isOnWorkBranch,
@@ -144,6 +148,23 @@ const EMPTY_DRAFT: SessionDraft = {
   baseRef: null,
 };
 
+/**
+/** What the provider list shows for providers that need no API key. */
+function providerHint(provider: SinscribeProvider): string {
+  const localCli = getProviderCommand(provider);
+
+  return localCli === null ? "no API key" : `via the ${localCli.command} CLI`;
+}
+
+/**
+ * After the model pick: api-key providers enter a key; local-cli providers
+ * have nothing to collect at all — the child CLI owns its own credentials,
+ * so the draft is persisted straight away.
+ */
+function nextSettingsStep(provider: SinscribeProvider): "key" | null {
+  return getProviderAuthKind(provider) === "local-cli" ? null : "key";
+}
+
 /** Menu runs always start the prompt flow with its own type/describe steps. */
 const EMPTY_PROMPT_SPEC: Extract<CommandSpec, { name: "prompt" }> = {
   name: "prompt",
@@ -187,7 +208,7 @@ export function MenuApp({
   // Bumped to repaint the tree when the active palette is mutated in place
   // (theme preview) — setTheme() alone does not trigger a React render.
   const [, forceThemeRepaint] = useState(0);
-  const { columns } = useTerminalSize();
+  const { columns, contentRows } = useViewport();
   const nextLogId = useRef(1);
 
   /** Builds the initial context form draft from the saved session, defaulting
@@ -261,20 +282,24 @@ export function MenuApp({
       // Context-first: when the current branch has no saved context yet, open
       // the context form directly — pr/branch need it (built from the snapshot
       // returned by refreshSession, not from state that hasn't propagated yet).
-      void refreshSession().then((snapshot) => {
-        if (
-          snapshot.root !== null &&
-          snapshot.branch !== null &&
-          snapshot.session?.context == null
-        ) {
-          setMode({
-            view: "session-input",
-            step: "feature",
-            draft: { ...EMPTY_DRAFT, baseRef: snapshot.detectedBase },
-            next: "menu",
-          });
-        }
-      });
+      refreshSession()
+        .then((snapshot) => {
+          if (
+            snapshot.root !== null &&
+            snapshot.branch !== null &&
+            snapshot.session?.context == null
+          ) {
+            setMode({
+              view: "session-input",
+              step: "feature",
+              draft: { ...EMPTY_DRAFT, baseRef: snapshot.detectedBase },
+              next: "menu",
+            });
+          }
+        })
+        .catch((error: unknown) => {
+          showError("Session", getErrorMessage(error));
+        });
     }
     // Refresh once after setup; goToMenu() handles later refreshes.
   }, [setupDone]);
@@ -291,7 +316,9 @@ export function MenuApp({
     }
 
     const interval = setInterval(() => {
-      void refreshStats();
+      // A failed background stats poll must never crash the menu (an
+      // unhandled rejection would trip the global process guard).
+      refreshStats().catch(() => undefined);
     }, GIT_STATS_REFRESH_MS);
 
     return () => {
@@ -692,6 +719,20 @@ export function MenuApp({
     }
   }
 
+  /** Model step → whatever that provider still needs (possibly nothing). */
+  function advanceAfterModel(draft: SettingsDraft): void {
+    const step = nextSettingsStep(draft.provider);
+
+    if (step === null) {
+      void saveSettingsAndContinue(draft, "", [
+        `Credentials are managed by the ${getProviderLabel(draft.provider)} binary itself.`,
+      ]);
+      return;
+    }
+
+    setMode({ view: "settings", step, draft });
+  }
+
   async function saveSettingsAndContinue(
     draft: SettingsDraft,
     apiKeyInput: string,
@@ -702,7 +743,9 @@ export function MenuApp({
     const updates: Record<string, string> = {
       SINSCRIBE_PROVIDER: draft.provider,
       SINSCRIBE_MODEL_ID: draft.modelId,
-      ...(trimmed.length > 0 ? { [apiKeyEnvKey]: trimmed } : {}),
+      ...(trimmed.length > 0 && apiKeyEnvKey !== null
+        ? { [apiKeyEnvKey]: trimmed }
+        : {}),
     };
 
     try {
@@ -715,9 +758,13 @@ export function MenuApp({
     const result = [
       `Provider: ${getProviderLabel(draft.provider)}`,
       `Model: ${draft.modelId}`,
-      trimmed.length > 0
-        ? `API key: updated (${apiKeyEnvKey})`
-        : `API key: unchanged (${apiKeyEnvKey})`,
+      ...(apiKeyEnvKey !== null
+        ? [
+            trimmed.length > 0
+              ? `API key: updated (${apiKeyEnvKey})`
+              : `API key: unchanged (${apiKeyEnvKey})`,
+          ]
+        : []),
       ...extraLines,
     ].join("\n");
 
@@ -958,12 +1005,7 @@ export function MenuApp({
         {mode.view === "session-review" ? (
           <Box flexDirection="column">
             <Text color={theme.accent}>Session context for {branch}</Text>
-            <Box
-              borderColor={theme.border}
-              borderStyle="round"
-              flexDirection="column"
-              paddingX={1}
-            >
+            <Panel>
               <Text>
                 <Text color={theme.dim}>Feature: </Text>
                 {session?.context?.feature}
@@ -986,7 +1028,7 @@ export function MenuApp({
                   {session.pr.template} — will be updated
                 </Text>
               ) : null}
-            </Box>
+            </Panel>
             <Text color={theme.dim}>
               enter to continue — e to edit context — esc to go back
             </Text>
@@ -1124,7 +1166,8 @@ export function MenuApp({
                   hint:
                     provider === mode.draft.provider
                       ? "current"
-                      : getProviderApiKeyEnvKey(provider),
+                      : (getProviderApiKeyEnvKey(provider) ??
+                        providerHint(provider)),
                 }))}
                 onCancel={goToMenu}
                 onSelect={(id) => {
@@ -1159,11 +1202,7 @@ export function MenuApp({
                       return;
                     }
 
-                    setMode({
-                      view: "settings",
-                      step: "key",
-                      draft: { ...mode.draft, modelId: value },
-                    });
+                    advanceAfterModel({ ...mode.draft, modelId: value });
                   }}
                   placeholder="e.g. my-custom-model-id"
                 />
@@ -1180,11 +1219,7 @@ export function MenuApp({
                   )}
                   onCancel={goToMenu}
                   onSelect={(modelId) => {
-                    setMode({
-                      view: "settings",
-                      step: "key",
-                      draft: { ...mode.draft, modelId },
-                    });
+                    advanceAfterModel({ ...mode.draft, modelId });
                   }}
                   title={`Pick a model for ${getProviderLabel(mode.draft.provider)}`}
                 />
@@ -1195,7 +1230,7 @@ export function MenuApp({
                 allowEmpty
                 isActive
                 key={mode.draft.provider}
-                label={`API key for ${getProviderLabel(mode.draft.provider)} (${getProviderApiKeyEnvKey(mode.draft.provider)})`}
+                label={`API key for ${getProviderLabel(mode.draft.provider)} (${getProviderApiKeyEnvKey(mode.draft.provider) ?? "API key"})`}
                 mask
                 onCancel={goToMenu}
                 onSubmit={(value) => {
@@ -1207,8 +1242,11 @@ export function MenuApp({
                   });
                 }}
                 placeholder={(() => {
+                  const keyEnvKey = getProviderApiKeyEnvKey(
+                    mode.draft.provider,
+                  );
                   const current =
-                    process.env[getProviderApiKeyEnvKey(mode.draft.provider)];
+                    keyEnvKey === null ? undefined : process.env[keyEnvKey];
 
                   return current
                     ? `current: ${createCredentialPreview(current)} — leave empty to keep`
@@ -1350,7 +1388,9 @@ export function MenuApp({
         {mode.view === "running" ? (
           <Box flexDirection="column">
             {mode.stream || log.length > 0 ? (
-              <RunLog log={log} waiting />
+              // Bounded: an unwindowed stream grows past the alt-screen
+              // viewport and leaves redraw residue on the next view.
+              <RunLog log={log} maxRows={contentRows - 2} waiting />
             ) : (
               <Spinner label={`${mode.label}...`} />
             )}
@@ -1435,7 +1475,9 @@ export function MenuApp({
         ) : null}
         {mode.view === "result" ? (
           <Box flexDirection="column">
-            {log.length > 0 ? <RunLog log={log} /> : null}
+            {log.length > 0 ? (
+              <RunLog log={log} maxRows={contentRows - 2} />
+            ) : null}
             {mode.result !== null ? (
               <Box flexDirection="column" marginBottom={1}>
                 <Text wrap="wrap">{mode.result}</Text>

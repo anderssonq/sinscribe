@@ -1,3 +1,4 @@
+import type { ProviderAuthKind } from "../constants.js";
 import { CliError } from "../domain/errors.js";
 
 /**
@@ -156,7 +157,11 @@ export function classifyLlmError(error: unknown): ClassifiedLlmError {
     return classified("rate-limit", firstLine(message));
   }
 
-  if (/timed?.?out|fetch failed|network|socket|econn/iu.test(message)) {
+  if (
+    /timed?.?out|fetch failed|network|socket|econn|connection error/iu.test(
+      message,
+    )
+  ) {
     return classified("network", firstLine(message));
   }
 
@@ -244,6 +249,11 @@ export function toFriendlyError(
     providerLabel: string;
     apiKeyEnvKey?: string;
     exhaustedRetries?: boolean;
+    /**
+     * How the provider authenticates. "local-cli" providers have no API key,
+     * so the key-centric advice below would be impossible to follow.
+     */
+    authKind?: ProviderAuthKind;
   },
 ): CliError {
   // InvalidModelJsonError extends CliError — classify it before passing
@@ -260,6 +270,15 @@ export function toFriendlyError(
       // resolveModel's own messages already say which env var to set.
       return new CliError(getMessage(error));
     case "auth":
+      if (context.authKind === "local-cli") {
+        // There is no API key to fix; the CLI owns its own sign-in.
+        return new CliError(
+          `Authentication failed for ${context.providerLabel} (${detail}). ` +
+            `Its CLI may be signed out or lack access — sign in again with ` +
+            `that CLI's own login command. Details: ${getMessage(error)}`,
+        );
+      }
+
       return new CliError(
         `Authentication failed for ${context.providerLabel} (${detail}). ` +
           `The API key looks invalid or expired — update it in ~/.sinscribe/.env` +

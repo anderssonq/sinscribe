@@ -5,6 +5,7 @@ import {
   getDefaultModelId,
   getProviderApiKeyEnvKey,
   getProviderBaseUrlEnvKey,
+  getProviderCommand,
   getProviderLabel,
   isValidModelId,
   normalizeModelId,
@@ -17,11 +18,12 @@ import {
   type SinscribeProvider,
 } from "../constants.js";
 import { loadSinscribeEnv } from "../env.js";
+import { ChatKiroCli } from "./kiro-cli/model.js";
 
 export type ResolvedModel = {
   provider: SinscribeProvider;
   modelId: string;
-  model: ChatAnthropic | ChatOpenAI | ChatOpenRouter;
+  model: ChatAnthropic | ChatOpenAI | ChatOpenRouter | ChatKiroCli;
 };
 
 export type ModelOverrides = {
@@ -45,6 +47,20 @@ export async function resolveModel(
   await loadSinscribeEnv();
 
   const provider = resolveConfiguredProvider(overrides.provider ?? null);
+  const localCli = getProviderCommand(provider);
+
+  if (localCli !== null) {
+    // No credential to resolve: the child CLI owns its own sign-in. A
+    // missing binary surfaces from the spawn with the setup hint.
+    const modelId = resolveModelId(overrides.modelId ?? null, provider);
+
+    return {
+      provider,
+      modelId,
+      model: new ChatKiroCli({ model: modelId, command: localCli.command }),
+    };
+  }
+
   const apiKey = resolveProviderApiKey(provider, overrides.apiKey ?? null);
 
   ensureProviderBaseUrl(provider);
@@ -69,6 +85,15 @@ export function resolveProviderApiKey(
   override: string | null,
 ): string {
   const apiKeyEnvKey = getProviderApiKeyEnvKey(provider);
+
+  if (apiKeyEnvKey === null) {
+    // aws-sso providers are resolved before this is ever called; reaching
+    // here means a wiring bug, so say which provider misrouted.
+    throw new Error(
+      `${getProviderLabel(provider)} does not use an API key — it signs in via AWS SSO.`,
+    );
+  }
+
   const trimmedOverride = override?.trim();
   const apiKey = trimmedOverride || process.env[apiKeyEnvKey];
 

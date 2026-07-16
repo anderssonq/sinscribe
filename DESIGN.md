@@ -173,9 +173,55 @@ sinscribe/
 
 - Providers: `opencode-go` (**default and the only maintained provider**, Kimi
   K2.7 Code default model), plus `openrouter`, `baseten`, `fireworks`,
-  `openai`, `openai-compatible`, `anthropic` — all in **beta** (selectable but
-  not actively maintained or regularly tested).
+  `openai`, `openai-compatible`, `anthropic`, `kiro-cli` — all in **beta**
+  (selectable but not actively maintained or regularly tested).
   Shared `PROVIDER_CONFIGS` shape, base-URL override env keys, OpenRouter fallback route.
+- `ProviderConfig` is a discriminated union on `authKind`: `"api-key"`
+  (everything but kiro-cli) vs `"local-cli"` (kiro-cli).
+- **Application gating, and why `local-cli` exists** (learned the hard way,
+  2026-07-16): AWS restricts a Q Developer subscription to **approved
+  applications**, enforced at request time — a self-registered third-party
+  client gets `AccessDeniedException: "Your subscription does not support
+this application"` even with a perfectly correct request and a valid token.
+  The ways past it are (a) impersonate an approved client, (b) have an
+  Identity Center admin authorize the app (`entitledApplicationArn`), or
+  (c) let an approved client make the call. We chose (c). (a) was rejected as
+  misrepresentation whose ToS risk would land on the user's own account.
+  An earlier direct implementation (SSO device flow + the unofficial
+  `generateAssistantResponse` API + an AWS event-stream parser) was deleted
+  once (c) was proven working: it could not serve anyone behind the gate, and
+  removing it also removed this project's biggest risk — depending on a
+  reverse-engineered wire format. The shapes are AWS's problem now.
+- **`kiro-cli` provider** (`src/llm/kiro-cli/`): spawns AWS's official Kiro
+  CLI (the renamed Amazon Q Developer CLI) — `kiro-cli chat --no-interactive
+--agent sinscribe`, prompt over **stdin** (so a 50k diff can't hit the argv
+  limit), stdout streamed. `local-cli` providers store **no credential**:
+  `needsCredentialSetup` returns false, the settings wizard skips from the
+  model pick straight to saving, and the healthcheck explains there is no key
+  to test.
+- **How tools are disabled — and why the obvious flag doesn't do it.**
+  `--trust-tools=` governs _auto-approval_, not availability: verified
+  against kiro-cli 2.3.0, a chat run with `--trust-tools=` still read a
+  directory on disk. The agent config's `tools` field governs availability
+  ("lists all tools that the agent can potentially use" — AWS's
+  agent-format docs), so `agent.ts` writes a `tools: []` agent and passes
+  `--agent`; the same probe then answers "I don't have access to a
+  file-reading or directory-listing tool in this session". That empty
+  allowlist is the single thing keeping this provider inside non-negotiable 1.
+  Two sharp edges guard it: an **unknown key** in the config (a `$schema`
+  line, say) makes Kiro skip the file _silently_, and a `--agent` it cannot
+  load **falls back to a built-in agent that has tools** — so the config
+  shape is exact, is rewritten before every run, and the runner treats
+  "agent not found" on stderr as fatal rather than degrading quietly.
+  The config lives under `~/.sinscribe/kiro-agent/` (which is also the
+  child's cwd, so discovery is deterministic) and never touches the user's
+  own agents in `~/.kiro/agents`.
+- **Output cleaning** (`kiro-cli/output.ts`): `kiro-cli chat` is a TUI, not a
+  text API — it emits ANSI styling and a `> ` answer marker even under
+  `NO_COLOR=1`. The cleaner strips both, incrementally: buffering the whole
+  answer would starve the inactivity watchdog on a long generation, so it
+  holds back only a partial escape straddling a chunk boundary. Credits and
+  warnings go to stderr and never reach the caller.
 - Env keys: `SINSCRIBE_PROVIDER`, `SINSCRIBE_MODEL_ID`, `OPENCODE_API_KEY`,
   `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `OPENROUTER_API_KEY`,
   `OPENAI_COMPATIBLE_API_KEY/_BASE_URL`, `ANTHROPIC_BASE_URL`.
@@ -184,6 +230,24 @@ sinscribe/
 - The TUI's AI settings wizard offers a **Test connection** step: a free
   `GET /models` against the provider (Bearer auth for the OpenAI-compatible
   family, `x-api-key` for Anthropic) that validates the key before saving.
+  `local-cli` providers have no key, so that step is skipped.
+- **Hang-proofing (2026-07-16)**: every streamed model call carries an
+  inactivity watchdog (`src/llm/watchdog.ts`) — an AbortSignal threaded
+  through LangChain's RunnableConfig plus a `raceAbort` wrapper so even a
+  provider that ignores the signal cannot suspend the loop (120 s inactivity;
+  10-minute overall cap on single-shot). Timeouts classify as retryable
+  network errors. `cli.tsx` installs global `unhandledRejection`/
+  `uncaughtException` guards and force-exits after a stdout/stderr flush, so
+  lingering SDK sockets cannot keep the process alive; git subprocesses get a
+  30 s timeout + `GIT_TERMINAL_PROMPT=0`.
+- **Viewport/branding centralization (2026-07-16)**: terminal-size math lives
+  in `src/ui/viewport.ts` (`useViewport` → `contentRows`, replacing three
+  divergent chrome constants), brand assets in `src/ui/branding.ts`, the
+  shared bordered frame in `src/ui/panel.tsx` (`Panel`/`TailPanel`), and the
+  review flows' duplicated helpers in `src/ui/review-shared.ts`. The fixed
+  16-line review clamps are height-aware, `RunLog`/chat history are
+  tail-windowed, and the main menu windows its items — no view exceeds the
+  terminal at extreme sizes (tested in `test/ui-render.test.ts`).
 
 ## 6. Open decisions (defaults chosen, flag if you disagree)
 

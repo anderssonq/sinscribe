@@ -1,4 +1,4 @@
-import { access, writeFile } from "node:fs/promises";
+import { writeFile } from "node:fs/promises";
 import { useEffect, useRef, useState } from "react";
 import { Box, Text } from "ink";
 import type { GlobalFlags } from "../commands.js";
@@ -11,10 +11,15 @@ import {
 import { getRepoRoot } from "../git/repo.js";
 import { copyToClipboard } from "../util/clipboard.js";
 import { SelectList } from "./menu-view.js";
+import { TailPanel } from "./panel.js";
+import {
+  fileExists,
+  isWarningLine,
+  useReviewVisibleLines,
+} from "./review-shared.js";
 import { appendEvent, RunLog, type LogItem } from "./run-view.js";
 import { getErrorMessage, isDebugMode } from "./shared.js";
 import { Spinner } from "./spinner.js";
-import { visibleTail } from "./text-buffer.js";
 import { theme } from "./theme.js";
 
 export type DocsReviewOutcome =
@@ -30,22 +35,13 @@ type Phase =
   | { phase: "exporting"; content: string }
   | { phase: "done"; content: string; summary: string[] };
 
-/** Lines of the generated document shown on the final screen (tail-clamped). */
-const DONE_VISIBLE_LINES = 16;
-
-async function fileExists(filePath: string): Promise<boolean> {
-  try {
-    await access(filePath);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-/** Export steps report failures as summary lines instead of aborting. */
-function isWarningLine(line: string): boolean {
-  return /failed|could not|skipped/iu.test(line);
-}
+/**
+ * Rows this flow renders around the tail-clamped document on the final
+ * screen: the heading, panel borders, the hidden-count note, and the
+ * summary lines. Passed to useReviewVisibleLines so the clamp adapts to
+ * terminal height.
+ */
+const DONE_EXTRA_ROWS = 8;
 
 type DocsReviewFlowProps = {
   flags: GlobalFlags;
@@ -63,6 +59,7 @@ export function DocsReviewFlow({
   isActive,
   onDone,
 }: DocsReviewFlowProps) {
+  const doneRows = useReviewVisibleLines(DONE_EXTRA_ROWS);
   const [phase, setPhase] = useState<Phase>({ phase: "generating" });
   const [log, setLog] = useState<LogItem[]>([]);
   const cancelledRef = useRef(false);
@@ -339,29 +336,14 @@ export function DocsReviewFlow({
     return <Spinner label="Exporting..." />;
   }
 
-  const { lines, hidden } = visibleTail(phase.content, DONE_VISIBLE_LINES);
-
   return (
     <Box flexDirection="column">
       <Text color={theme.accent}>Project documentation</Text>
-      <Box
-        borderColor={theme.border}
-        borderStyle="round"
-        flexDirection="column"
-        paddingX={1}
-      >
-        {hidden > 0 ? (
-          <Text color={theme.dim}>
-            … {hidden} more line{hidden === 1 ? "" : "s"} above (the full
-            document is printed after exiting)
-          </Text>
-        ) : null}
-        {lines.map((line, index) => (
-          <Text key={index} wrap="wrap">
-            {line.length > 0 ? line : " "}
-          </Text>
-        ))}
-      </Box>
+      <TailPanel
+        hiddenHint=" (the full document is printed after exiting)"
+        maxRows={doneRows}
+        text={phase.content}
+      />
       {phase.summary.map((line, index) =>
         isWarningLine(line) ? (
           <Text color={theme.accent} key={index}>

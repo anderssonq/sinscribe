@@ -1,14 +1,14 @@
 import { useMemo, useState } from "react";
 import { Box, Text, useInput } from "ink";
-import { LOGO_LINES, logoVisible, useTerminalSize } from "./logo.js";
 import { useOnWheel } from "./mouse.js";
 import { wrapLines } from "./text-buffer.js";
 import { theme } from "./theme.js";
+import { useViewport } from "./viewport.js";
 
-/** Rows the menu chrome above the viewport always occupies: the header box
- * (border + 4 lines), its subtitle, a trailing margin, this view's two status
- * lines, and a one-row cushion. The logo adds its own rows when it is shown. */
-const CHROME_ROWS = 11;
+/** Rows this view adds around its window beyond the shared logo/header
+ * chrome (already in useViewport's contentRows): its two status lines and a
+ * one-row cushion. */
+const HELP_EXTRA_ROWS = 3;
 
 /** Wheel notches move a few rows at a time; keys move one row / one page. */
 const WHEEL_STEP = 3;
@@ -26,14 +26,13 @@ export function HelpView({
   text: string;
   onExit: () => void;
 }) {
-  const { columns, rows } = useTerminalSize();
+  const { columns, contentRows } = useViewport();
   const [offset, setOffset] = useState(0);
 
   const width = Math.max(20, columns - 2);
   const lines = useMemo(() => wrapLines(text, width), [text, width]);
 
-  const logoRows = logoVisible(columns, rows) ? LOGO_LINES.length : 0;
-  const visible = Math.max(4, rows - logoRows - CHROME_ROWS);
+  const visible = Math.max(4, contentRows - HELP_EXTRA_ROWS);
 
   const maxOffset = Math.max(0, lines.length - visible);
   const clamped = Math.min(offset, maxOffset);

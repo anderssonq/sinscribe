@@ -30,6 +30,55 @@ import { initThemeFromEnv, theme } from "./ui/theme.js";
 
 type RunCommand = Extract<CliCommand, { kind: "run" }>;
 
+/**
+ * Global failure nets. Without these, an unhandled rejection (Node's default
+ * is a hard crash) or a stray exception could leave the terminal in raw/alt
+ * mode with no message — the process guards print a clear error and exit;
+ * installTerminalCleanup's process-exit handler restores the terminal.
+ * Installed unconditionally so print/offline runs get SIGINT/SIGTERM/SIGHUP
+ * handling too, not just interactive Ink sessions.
+ */
+function installProcessGuards(): void {
+  // exitWhenFlushed (not a bare process.exit) so the error message itself
+  // is guaranteed to flush before the process dies.
+  process.on("unhandledRejection", (reason) => {
+    process.stderr.write(`Unexpected error: ${getErrorMessage(reason)}\n`);
+    process.exitCode = 1;
+    exitWhenFlushed();
+  });
+
+  process.on("uncaughtException", (error) => {
+    process.stderr.write(`Unexpected error: ${getErrorMessage(error)}\n`);
+    process.exitCode = 1;
+    exitWhenFlushed();
+  });
+
+  installTerminalCleanup();
+}
+
+/**
+ * Forces the process to exit once stdout/stderr have flushed. Node only
+ * exits when the event loop drains, so a lingering keep-alive socket or SDK
+ * timer would otherwise hang the CLI after its output was already printed —
+ * the intermittent "freeze" that forced a terminal kill. The empty writes
+ * queue behind every earlier write, so their callbacks fire only after all
+ * real output has flushed (safe when stdout is a pipe).
+ */
+function exitWhenFlushed(): void {
+  const code = typeof process.exitCode === "number" ? process.exitCode : 0;
+  let pending = 2;
+  const done = (): void => {
+    pending -= 1;
+
+    if (pending === 0) {
+      process.exit(code);
+    }
+  };
+
+  process.stdout.write("", done);
+  process.stderr.write("", done);
+}
+
 /** One-shot path used by -p/--print and non-TTY runs. No Ink. */
 async function runPrint(command: RunCommand): Promise<void> {
   try {
@@ -105,6 +154,8 @@ async function renderInteractive(
 }
 
 async function main(): Promise<void> {
+  installProcessGuards();
+
   const command = parseCommand(process.argv.slice(2));
 
   if (command.kind === "help") {
@@ -157,7 +208,7 @@ async function main(): Promise<void> {
   if (command.flags.print || !process.stdin.isTTY) {
     if (needsCredentialSetup(command.flags.provider, command.flags.apiKey)) {
       process.stderr.write(
-        "An API key is required for non-interactive runs. Run sinscribe in an interactive terminal to save credentials, or set the provider API key in the environment.\n",
+        "Credentials are required for non-interactive runs. Run sinscribe in an interactive terminal to set them up (API key, or AWS SSO sign-in for Kiro), or set the provider API key in the environment.\n",
       );
       process.exitCode = 1;
       return;
@@ -220,9 +271,15 @@ async function main(): Promise<void> {
   }
 }
 
-main().catch((error: unknown) => {
-  process.stderr.write(
-    `${error instanceof CliError || error instanceof NotAGitRepositoryError ? getErrorMessage(error) : `Unexpected error: ${getErrorMessage(error)}`}\n`,
-  );
-  process.exitCode = 1;
-});
+main()
+  .catch((error: unknown) => {
+    process.stderr.write(
+      `${error instanceof CliError || error instanceof NotAGitRepositoryError ? getErrorMessage(error) : `Unexpected error: ${getErrorMessage(error)}`}\n`,
+    );
+    process.exitCode = 1;
+  })
+  // Exit explicitly (after a flush) instead of waiting for the event loop to
+  // drain — see exitWhenFlushed. This also makes Ink's Ctrl+C terminal: it
+  // resolves waitUntilExit, main() returns, and the process exits even if an
+  // SDK left a referenced handle behind.
+  .finally(exitWhenFlushed);

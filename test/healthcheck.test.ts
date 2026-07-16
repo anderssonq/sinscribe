@@ -153,4 +153,20 @@ describe("testProviderConnection", () => {
     );
     expect(fetchImpl.mock.calls).toHaveLength(0);
   });
+
+  it("explains that kiro-cli owns its own sign-in, without any request", async () => {
+    const fetchImpl = vi.fn() as unknown as typeof fetch & {
+      mock: { calls: unknown[] };
+    };
+    const result = await testProviderConnection({
+      provider: "kiro-cli",
+      apiKey: "",
+      modelId: "auto",
+      fetchImpl,
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.ok ? "" : result.message).toMatch(/kiro-cli/u);
+    expect(fetchImpl.mock.calls).toHaveLength(0);
+  });
 });

@@ -142,10 +142,11 @@ win over the file, and nothing secret is ever printed.
 
 ```bash
 # ~/.sinscribe/.env (all optional; created by the CLI)
-SINSCRIBE_PROVIDER="opencode-go"    # opencode-go | openrouter | baseten | fireworks | openai | openai-compatible | anthropic
+SINSCRIBE_PROVIDER="opencode-go"    # opencode-go | openrouter | baseten | fireworks | openai | openai-compatible | anthropic | kiro-cli
 SINSCRIBE_MODEL_ID="kimi-k2.7-code" # default model for the provider
 OPENCODE_API_KEY="..."
 ANTHROPIC_API_KEY="..."             # if you switch to anthropic
+                                    # (kiro-cli needs no key — see below)
 SINSCRIBE_TICKET_PATTERN="(T-\d+)"  # optional custom ticket regex
 SINSCRIBE_THEME="ayu-dark"          # TUI color theme (set from the menu's Theme picker)
 ```
@@ -167,11 +168,58 @@ endpoint (free, no tokens) to verify the key and model before saving.
 | -------------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
 | `opencode-go`                                                                    | **Supported and maintained**                                           |
 | `openrouter`, `anthropic`, `openai`, `baseten`, `fireworks`, `openai-compatible` | Beta — kept selectable but not actively maintained or regularly tested |
+| `kiro-cli`                                                                       | Beta — drives AWS's official Kiro CLI; single-shot commands only       |
 
 > [!WARNING]
 > Only OpenCode Go is exercised regularly. The beta providers ship as-is and may
 > lag behind their vendors' API changes — verify one with **Test connection**
 > before relying on it.
+
+### Amazon Q Developer setup (`kiro-cli`)
+
+Use the Amazon Q subscription you already have, through AWS's own CLI:
+
+1. Install **Kiro CLI** — `brew install kiro-cli`, or see
+   [kiro.dev/docs/cli](https://kiro.dev/docs/cli/) — and run `kiro-cli login`
+   once (IAM Identity Center, Builder ID, Google and GitHub all work).
+2. Set `SINSCRIBE_PROVIDER=kiro-cli`, or pick **Amazon Q Developer (Kiro
+   CLI)** in the TUI's **AI settings**. There is no key to enter and nothing
+   is stored: `kiro-cli` owns its own sign-in.
+3. Run `pr` / `commit` / `branch` / `prompt` as usual.
+
+Pick a model with `--model-id` or in the settings wizard; the labels carry
+each model's credit multiplier, e.g. `qwen3-coder-next` (0.05x) up to
+`claude-sonnet-4.5` (1.30x). `auto` (the default) lets Kiro choose.
+
+**Why a subprocess and not the API?** AWS restricts Q subscriptions to
+_approved applications_: a third-party client that registers itself is
+refused with `AccessDeniedException: "Your subscription does not support
+this application"` however correct its request is. Rather than impersonate
+an approved client, Sinscribe drives the official one — the approved client
+makes the call, as itself — which also means the wire format stays AWS's
+responsibility rather than something we reverse-engineer.
+
+**Tools are off, by construction.** Sinscribe runs `kiro-cli chat` with a
+generated agent that declares `"tools": []`, so the model can write text but
+has no tool to touch your working tree — that is what keeps `pr`/`commit`/
+`branch`/`prompt` single-shot. (The `--trust-tools=` flag does _not_ do
+this: it only governs auto-approval, and was verified to still let the model
+read the filesystem.) The agent config lives under `~/.sinscribe/kiro-agent/`
+and never touches your own Kiro agents.
+
+**Limitation:** agentic commands (`context`/`docs`/`agents`/`chat`) need
+tool calling and exit with a clear message asking you to switch providers.
+
+### Reliability
+
+- Every model call has a **120 s inactivity timeout** (and a 10-minute
+  overall cap for single-shot commands); a stalled connection reports a
+  clear network error — with automatic retries on the single-shot path —
+  instead of freezing the CLI.
+- **Ctrl+C always exits**, and the process force-exits after finishing its
+  work, so a lingering SDK socket can never hang the terminal.
+- git subprocesses are capped at 30 s with `GIT_TERMINAL_PROMPT=0`, so a
+  credential or GPG prompt fails fast instead of blocking forever.
 
 ## Templates
 

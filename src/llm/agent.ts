@@ -2,7 +2,15 @@ import { createHash } from "node:crypto";
 import path from "node:path";
 import { MemorySaver } from "@langchain/langgraph";
 import { createDeepAgent, LocalShellBackend } from "deepagents";
-import { SECRET_ENV_KEYS } from "../constants.js";
+import {
+  getProviderAuthKind,
+  getProviderLabel,
+  providerSupportsAgentic,
+  resolveConfiguredProvider,
+  SECRET_ENV_KEYS,
+} from "../constants.js";
+import { CliError } from "../domain/errors.js";
+import { toFriendlyError } from "./errors.js";
 import {
   emitDebug,
   getContentText,
@@ -11,6 +19,11 @@ import {
   type RunEvent,
 } from "./events.js";
 import { resolveModel } from "./model.js";
+import {
+  createInactivityWatchdog,
+  LLM_INACTIVITY_MS,
+  raceAbort,
+} from "./watchdog.js";
 
 export type AgentRunOptions = RunCallbacks & {
   modelId?: string | null;
@@ -38,6 +51,22 @@ export async function runAgent(
   cwd: string,
   options: AgentRunOptions = {},
 ): Promise<AgentRunResult> {
+  // Registry-declared capability check, before any credential or network
+  // access: the agentic loop needs a tool-calling model (bindTools), which
+  // aws-sso providers do not offer yet.
+  const configuredProvider = resolveConfiguredProvider(
+    options.provider ?? null,
+  );
+
+  if (!providerSupportsAgentic(configuredProvider)) {
+    throw new CliError(
+      `The ${getProviderLabel(configuredProvider)} provider supports ` +
+        `pr/commit/branch/prompt only for now — context/docs/agents/chat ` +
+        `need a tool-calling provider. Switch providers in AI settings or ` +
+        `with SINSCRIBE_PROVIDER.`,
+    );
+  }
+
   const { model, modelId, provider } = await resolveModel({
     modelId: options.modelId ?? null,
     provider: options.provider ?? null,
@@ -73,38 +102,62 @@ export async function runAgent(
 
   emitDebug(options, `thread=${threadId}`);
 
-  const stream = await agent.stream(
-    {
-      messages: [
-        {
-          role: "user",
-          content: userMessage,
-        },
-      ],
-    },
-    {
-      configurable: {
-        thread_id: threadId,
-      },
-      streamMode: ["messages", "tools"],
-      subgraphs: true,
-    },
-  );
-
+  // Inactivity-only watchdog: agent loops legitimately run for minutes, so
+  // there is no overall deadline — but a stalled socket (no chunk for
+  // LLM_INACTIVITY_MS) must abort instead of freezing the CLI. Tool
+  // subprocesses have their own 120s cap via LocalShellBackend's timeout.
+  const watchdog = createInactivityWatchdog({
+    inactivityMs: LLM_INACTIVITY_MS,
+  });
   const parts: string[] = [];
 
-  for await (const chunk of stream) {
-    const event = parseStreamEvent(chunk);
+  try {
+    const stream = await agent.stream(
+      {
+        messages: [
+          {
+            role: "user",
+            content: userMessage,
+          },
+        ],
+      },
+      {
+        configurable: {
+          thread_id: threadId,
+        },
+        signal: watchdog.signal,
+        streamMode: ["messages", "tools"],
+        subgraphs: true,
+      },
+    );
 
-    if (!event) {
-      continue;
+    for await (const chunk of raceAbort(stream, watchdog)) {
+      watchdog.touch();
+
+      const event = parseStreamEvent(chunk);
+
+      if (!event) {
+        continue;
+      }
+
+      if (event.type === "text") {
+        parts.push(event.text);
+      }
+
+      options.onEvent?.(event);
     }
 
-    if (event.type === "text") {
-      parts.push(event.text);
+    // LangGraph can end the stream quietly on abort; surface the timeout.
+    if (watchdog.timeoutError !== null) {
+      throw watchdog.timeoutError;
     }
-
-    options.onEvent?.(event);
+  } catch (error) {
+    throw toFriendlyError(error, {
+      providerLabel: getProviderLabel(provider),
+      authKind: getProviderAuthKind(provider),
+    });
+  } finally {
+    watchdog.dispose();
   }
 
   return {

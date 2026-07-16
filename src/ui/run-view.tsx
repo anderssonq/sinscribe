@@ -9,8 +9,11 @@ import {
 } from "../constants.js";
 import type { ShortStat } from "../git/diff.js";
 import type { RunEvent } from "../llm/events.js";
+import { BRAND_TAGLINE } from "./branding.js";
 import { Spinner } from "./spinner.js";
+import { visibleTail, wrapLines } from "./text-buffer.js";
 import { theme } from "./theme.js";
+import { useTerminalSize } from "./viewport.js";
 
 /** Git change figures shown in the header (menu view only). */
 export type HeaderStats = {
@@ -114,7 +117,7 @@ export function Header({
         </Text>
         <Text color={theme.dim}>
           {" "}
-          v{SINSCRIBE_VERSION} · git-centric workflow assistant
+          v{SINSCRIBE_VERSION} · {BRAND_TAGLINE}
         </Text>
       </Text>
       {/*
@@ -147,14 +150,68 @@ export function Header({
   );
 }
 
+/**
+ * Bottom-anchored window over a log: the newest items that fit `maxRows`
+ * visual rows (text items cost their wrapped row count; tool/status/debug
+ * lines cost one). The oldest surviving text item is tail-trimmed when it
+ * straddles the budget. Pure, so extreme sizes are unit-testable.
+ */
+export function tailWindowLog(
+  log: LogItem[],
+  columns: number,
+  maxRows: number,
+): { items: LogItem[]; hiddenRows: number } {
+  const width = Math.max(20, columns - 2);
+  const items: LogItem[] = [];
+  let budget = Math.max(1, maxRows);
+  let hiddenRows = 0;
+
+  for (let index = log.length - 1; index >= 0; index--) {
+    const item = log[index];
+    const wrapped =
+      item.type === "text" ? wrapLines(item.content, width) : null;
+    const rows = wrapped === null ? 1 : wrapped.length;
+
+    if (budget === 0) {
+      hiddenRows += rows;
+      continue;
+    }
+
+    if (rows <= budget) {
+      items.unshift(item);
+      budget -= rows;
+      continue;
+    }
+
+    // Only a text item can straddle the budget (non-text costs exactly one
+    // row, which always fits a budget ≥ 1). Keep its last `budget` wrapped
+    // rows — already ≤ width, so joining with newlines cannot re-wrap.
+    if (wrapped !== null) {
+      const { lines, hidden } = visibleTail(wrapped.join("\n"), budget);
+
+      items.unshift({ ...item, content: lines.join("\n") });
+      hiddenRows += hidden;
+    }
+
+    budget = 0;
+  }
+
+  return { items, hiddenRows };
+}
+
 export function RunLog({
   log,
   waiting = false,
+  maxRows,
 }: {
   log: LogItem[];
   /** Animates the empty state while a run is still in flight. */
   waiting?: boolean;
+  /** Bounds the log to this many visual rows (alt-screen residue guard). */
+  maxRows?: number;
 }) {
+  const { columns } = useTerminalSize();
+
   if (log.length === 0) {
     return waiting ? (
       <Spinner label="Waiting for model output..." />
@@ -163,9 +220,23 @@ export function RunLog({
     );
   }
 
+  let windowed =
+    maxRows === undefined
+      ? { items: log, hiddenRows: 0 }
+      : tailWindowLog(log, columns, maxRows);
+
+  // The "… N earlier lines" indicator occupies a row of its own; when it
+  // will render, re-window with one less row so the total stays in budget.
+  if (maxRows !== undefined && maxRows > 1 && windowed.hiddenRows > 0) {
+    windowed = tailWindowLog(log, columns, maxRows - 1);
+  }
+
   return (
     <Box flexDirection="column">
-      {log.map((item) => (
+      {windowed.hiddenRows > 0 ? (
+        <Text color={theme.dim}>… {windowed.hiddenRows} earlier lines</Text>
+      ) : null}
+      {windowed.items.map((item) => (
         <LogLine item={item} key={item.id} />
       ))}
     </Box>

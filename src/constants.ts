@@ -39,6 +39,7 @@ export type SinscribeProvider =
   | "anthropic"
   | "baseten"
   | "fireworks"
+  | "kiro-cli"
   | "openai"
   | "openai-compatible"
   | "opencode-go"
@@ -49,16 +50,39 @@ export type ProviderModelOption = {
   label: string;
 };
 
-type ProviderConfig = {
-  apiKeyEnvKey: string;
+export type ProviderAuthKind = "api-key" | "local-cli";
+
+type ProviderConfigBase = {
   baseURL?: string;
-  /** Env var that overrides {@link ProviderConfig.baseURL} when set. */
+  /** Env var that overrides {@link ProviderConfigBase.baseURL} when set. */
   baseUrlEnvKey?: string;
   /** When true, the provider has no default endpoint and requires a base URL. */
   requiresBaseUrl?: boolean;
   label: string;
   modelOptions: ProviderModelOption[];
 };
+
+type ApiKeyProviderConfig = ProviderConfigBase & {
+  authKind: "api-key";
+  apiKeyEnvKey: string;
+};
+
+/**
+ * A provider whose engine is an already-installed, already-signed-in CLI
+ * that we drive as a subprocess. Sinscribe stores no credential at all —
+ * the binary owns its own auth — so there is nothing for the wizard to ask.
+ */
+type LocalCliProviderConfig = ProviderConfigBase & {
+  authKind: "local-cli";
+  /** The binary that must be on PATH. */
+  command: string;
+  /** Shown when the binary is missing; names the one-time setup. */
+  setupHint: string;
+  /** Tool calling would have to go through the child CLI; not bridged. */
+  supportsAgentic: false;
+};
+
+type ProviderConfig = ApiKeyProviderConfig | LocalCliProviderConfig;
 
 export const SELECTABLE_PROVIDERS = [
   "openrouter",
@@ -68,10 +92,12 @@ export const SELECTABLE_PROVIDERS = [
   "openai",
   "openai-compatible",
   "anthropic",
+  "kiro-cli",
 ] as const satisfies readonly SinscribeProvider[];
 
 export const PROVIDER_CONFIGS: Record<SinscribeProvider, ProviderConfig> = {
   openrouter: {
+    authKind: "api-key",
     apiKeyEnvKey: OPENROUTER_API_KEY_ENV_KEY,
     baseURL: OPENROUTER_BASE_URL,
     label: "OpenRouter",
@@ -84,6 +110,7 @@ export const PROVIDER_CONFIGS: Record<SinscribeProvider, ProviderConfig> = {
     ],
   },
   "opencode-go": {
+    authKind: "api-key",
     apiKeyEnvKey: OPENCODE_GO_API_KEY_ENV_KEY,
     baseURL: OPENCODE_GO_BASE_URL,
     label: "OpenCode Go",
@@ -99,6 +126,7 @@ export const PROVIDER_CONFIGS: Record<SinscribeProvider, ProviderConfig> = {
     ],
   },
   baseten: {
+    authKind: "api-key",
     apiKeyEnvKey: BASETEN_API_KEY_ENV_KEY,
     baseURL: "https://inference.baseten.co/v1",
     label: "Baseten",
@@ -108,6 +136,7 @@ export const PROVIDER_CONFIGS: Record<SinscribeProvider, ProviderConfig> = {
     ],
   },
   fireworks: {
+    authKind: "api-key",
     apiKeyEnvKey: FIREWORKS_API_KEY_ENV_KEY,
     baseURL: "https://api.fireworks.ai/inference/v1",
     label: "Fireworks",
@@ -120,6 +149,7 @@ export const PROVIDER_CONFIGS: Record<SinscribeProvider, ProviderConfig> = {
     ],
   },
   openai: {
+    authKind: "api-key",
     apiKeyEnvKey: OPENAI_API_KEY_ENV_KEY,
     label: "OpenAI",
     modelOptions: [
@@ -128,6 +158,7 @@ export const PROVIDER_CONFIGS: Record<SinscribeProvider, ProviderConfig> = {
     ],
   },
   "openai-compatible": {
+    authKind: "api-key",
     apiKeyEnvKey: OPENAI_COMPATIBLE_API_KEY_ENV_KEY,
     baseUrlEnvKey: OPENAI_COMPATIBLE_BASE_URL_ENV_KEY,
     requiresBaseUrl: true,
@@ -135,6 +166,7 @@ export const PROVIDER_CONFIGS: Record<SinscribeProvider, ProviderConfig> = {
     modelOptions: [],
   },
   anthropic: {
+    authKind: "api-key",
     apiKeyEnvKey: ANTHROPIC_API_KEY_ENV_KEY,
     baseUrlEnvKey: ANTHROPIC_BASE_URL_ENV_KEY,
     label: "Anthropic",
@@ -142,6 +174,28 @@ export const PROVIDER_CONFIGS: Record<SinscribeProvider, ProviderConfig> = {
       { id: "claude-haiku-4-5", label: "Haiku" },
       { id: "claude-sonnet-5", label: "Sonnet" },
       { id: "claude-opus-4-8", label: "Opus" },
+    ],
+  },
+  "kiro-cli": {
+    authKind: "local-cli",
+    command: "kiro-cli",
+    setupHint:
+      "Install Kiro CLI (`brew install kiro-cli`, or see " +
+      "https://kiro.dev/docs/cli/) and run `kiro-cli login` once.",
+    supportsAgentic: false,
+    label: "Amazon Q Developer (Kiro CLI)",
+    // Straight from `kiro-cli chat --list-models`; the multiplier is the
+    // credit cost per call, surfaced so the cheap options are obvious.
+    modelOptions: [
+      { id: "auto", label: "Kiro default — chosen per task (1.00x)" },
+      { id: "qwen3-coder-next", label: "Qwen3 Coder Next (0.05x)" },
+      { id: "minimax-m2.1", label: "MiniMax M2.1 (0.15x)" },
+      { id: "deepseek-3.2", label: "DeepSeek 3.2 (0.25x)" },
+      { id: "minimax-m2.5", label: "MiniMax M2.5 (0.25x)" },
+      { id: "claude-haiku-4.5", label: "Claude Haiku 4.5 (0.40x)" },
+      { id: "glm-5", label: "GLM-5 (0.50x)" },
+      { id: "claude-sonnet-4", label: "Claude Sonnet 4 (1.30x)" },
+      { id: "claude-sonnet-4.5", label: "Claude Sonnet 4.5 (1.30x)" },
     ],
   },
 };
@@ -162,8 +216,44 @@ export function getProviderLabel(provider: SinscribeProvider): string {
   return getProviderConfig(provider).label;
 }
 
-export function getProviderApiKeyEnvKey(provider: SinscribeProvider): string {
-  return getProviderConfig(provider).apiKeyEnvKey;
+/**
+ * The env var holding the provider's API key, or null for providers that
+ * authenticate without one (local-cli). Callers must handle null deliberately.
+ */
+export function getProviderApiKeyEnvKey(
+  provider: SinscribeProvider,
+): string | null {
+  const config = getProviderConfig(provider);
+
+  return config.authKind === "api-key" ? config.apiKeyEnvKey : null;
+}
+
+export function getProviderAuthKind(
+  provider: SinscribeProvider,
+): ProviderAuthKind {
+  return getProviderConfig(provider).authKind;
+}
+
+/**
+ * Whether the provider can back the agentic tier (context/docs/agents/chat).
+ * API-key providers all ride LangChain classes with tool-calling support;
+ * local-cli providers declare their capability in the registry.
+ */
+export function providerSupportsAgentic(provider: SinscribeProvider): boolean {
+  const config = getProviderConfig(provider);
+
+  return config.authKind === "api-key" ? true : config.supportsAgentic;
+}
+
+/** The binary a local-cli provider drives, or null for every other kind. */
+export function getProviderCommand(
+  provider: SinscribeProvider,
+): { command: string; setupHint: string } | null {
+  const config = getProviderConfig(provider);
+
+  return config.authKind === "local-cli"
+    ? { command: config.command, setupHint: config.setupHint }
+    : null;
 }
 
 /**
