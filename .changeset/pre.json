@@ -6,6 +6,7 @@
   },
   "changesets": [
     "agent-shell-env-scrub",
-    "initial-beta-release"
+    "initial-beta-release",
+    "kiro-freeze-responsive"
   ]
 }
