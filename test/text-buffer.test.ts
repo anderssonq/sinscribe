@@ -1,47 +1,124 @@
 import { describe, expect, it } from "vitest";
 import {
-  appendInput,
-  deleteLast,
+  cursorRowCol,
+  normalizeInsert,
   visibleTail,
+  visibleWindow,
   wrapLines,
 } from "../src/ui/text-buffer.js";
 
-describe("appendInput", () => {
-  it("appends plain text", () => {
-    expect(appendInput("ab", "cd")).toBe("abcd");
+describe("normalizeInsert", () => {
+  it("normalizes CRLF and CR to \\n in multiline mode", () => {
+    expect(normalizeInsert("one\r\ntwo\rthree", true)).toBe("one\ntwo\nthree");
   });
 
-  it("normalizes CRLF and CR to \\n (pasted text keeps its line breaks)", () => {
-    expect(appendInput("", "one\r\ntwo\rthree")).toBe("one\ntwo\nthree");
+  it("drops newlines in single-line mode", () => {
+    expect(normalizeInsert("one\r\ntwo\rthree", false)).toBe("onetwothree");
   });
 
   it("expands tabs and drops other control characters", () => {
     const bel = String.fromCharCode(7);
     const esc = String.fromCharCode(27);
 
-    expect(appendInput("", `a\tb${bel}c${esc}[31md`)).toBe("a  bc[31md");
-  });
-
-  it("keeps existing newlines when appending more input", () => {
-    expect(appendInput("line1\n", "line2")).toBe("line1\nline2");
+    expect(normalizeInsert(`a\tb${bel}c${esc}[31md`, true)).toBe("a  bc[31md");
   });
 });
 
-describe("deleteLast", () => {
-  it("removes the last character", () => {
-    expect(deleteLast("abc")).toBe("ab");
+describe("cursorRowCol", () => {
+  it("is the origin for empty text", () => {
+    expect(cursorRowCol("", 0)).toEqual({ row: 0, col: 0 });
   });
 
-  it("joins lines when the last character is a newline", () => {
-    expect(deleteLast("line1\n")).toBe("line1");
+  it("counts columns within a row", () => {
+    expect(cursorRowCol("ab\ncd", 2)).toEqual({ row: 0, col: 2 });
   });
 
-  it("deletes a whole emoji instead of splitting its surrogate pair", () => {
-    expect(deleteLast("deploy 🚀")).toBe("deploy ");
+  it("starts the next row after a newline", () => {
+    expect(cursorRowCol("ab\ncd", 3)).toEqual({ row: 1, col: 0 });
+    expect(cursorRowCol("a\n", 2)).toEqual({ row: 1, col: 0 });
   });
 
-  it("is a no-op on an empty string", () => {
-    expect(deleteLast("")).toBe("");
+  it("counts columns in code points", () => {
+    expect(cursorRowCol("🚀x", 2)).toEqual({ row: 0, col: 2 });
+  });
+});
+
+describe("visibleWindow", () => {
+  it("anchors to the bottom on first render, like visibleTail", () => {
+    expect(visibleWindow("a\nb\nc\nd", 7, 2, Infinity)).toEqual({
+      lines: ["c", "d"],
+      start: 2,
+      hiddenAbove: 2,
+      hiddenBelow: 0,
+      cursorRow: 1,
+      cursorCol: 1,
+    });
+  });
+
+  it("shows everything when the text fits", () => {
+    expect(visibleWindow("a\nb", 3, 6, Infinity)).toEqual({
+      lines: ["a", "b"],
+      start: 0,
+      hiddenAbove: 0,
+      hiddenBelow: 0,
+      cursorRow: 1,
+      cursorCol: 1,
+    });
+  });
+
+  it("treats empty text as one empty line", () => {
+    expect(visibleWindow("", 0, 3, Infinity)).toEqual({
+      lines: [""],
+      start: 0,
+      hiddenAbove: 0,
+      hiddenBelow: 0,
+      cursorRow: 0,
+      cursorCol: 0,
+    });
+  });
+
+  it("shows the trailing empty line after a newline (cursor row)", () => {
+    expect(visibleWindow("a\n", 2, 3, Infinity)).toEqual({
+      lines: ["a", ""],
+      start: 0,
+      hiddenAbove: 0,
+      hiddenBelow: 0,
+      cursorRow: 1,
+      cursorCol: 0,
+    });
+  });
+
+  it("scrolls up when the cursor moves above the window", () => {
+    expect(visibleWindow("a\nb\nc\nd", 0, 2, 2)).toEqual({
+      lines: ["a", "b"],
+      start: 0,
+      hiddenAbove: 0,
+      hiddenBelow: 2,
+      cursorRow: 0,
+      cursorCol: 0,
+    });
+  });
+
+  it("scrolls down when the cursor moves below the window", () => {
+    expect(visibleWindow("a\nb\nc\nd", 7, 2, 0)).toEqual({
+      lines: ["c", "d"],
+      start: 2,
+      hiddenAbove: 2,
+      hiddenBelow: 0,
+      cursorRow: 1,
+      cursorCol: 1,
+    });
+  });
+
+  it("keeps the window still while the cursor moves inside it", () => {
+    expect(visibleWindow("a\nb\nc\nd", 3, 2, 1)).toEqual({
+      lines: ["b", "c"],
+      start: 1,
+      hiddenAbove: 1,
+      hiddenBelow: 1,
+      cursorRow: 0,
+      cursorCol: 1,
+    });
   });
 });
 

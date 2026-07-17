@@ -7,6 +7,7 @@ import {
 } from "../src/domain/branch.js";
 import { CliError } from "../src/domain/errors.js";
 import type { RunEvent } from "../src/llm/events.js";
+import { saveProjectRules } from "../src/domain/rules.js";
 import { saveSession, type SessionContext } from "../src/session/store.js";
 import { git, initRepo, makeTempDir, removeDir } from "./git-fixture.js";
 
@@ -323,6 +324,19 @@ describe("runBranch", () => {
     const [, userPrompt] = runSingleShotMock.mock.calls[0] as [string, string];
 
     expect(userPrompt).not.toContain("Business context");
+  });
+
+  it("loads project rules into the system prompt", async () => {
+    await saveProjectRules(repo, "always use type feat for uploader work");
+    runSingleShotMock.mockResolvedValue(
+      modelReply({ type: "feat", slugs: ["one"] }),
+    );
+
+    await runBranch(makeSpec(), FLAGS, repo);
+
+    const [systemPrompt] = runSingleShotMock.mock.calls[0] as [string, string];
+
+    expect(systemPrompt).toContain("always use type feat for uploader work");
   });
 });
 

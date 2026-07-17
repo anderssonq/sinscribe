@@ -5,6 +5,7 @@ import { ensureGitRepo, getRepoRoot } from "../git/repo.js";
 import { runAgent } from "../llm/agent.js";
 import type { RunCallbacks } from "../llm/events.js";
 import { createAgentsSystemPrompt } from "./prompts.js";
+import { describeRulesForDryRun, loadRules } from "./rules.js";
 
 type AgentsSpec = Extract<CommandSpec, { name: "agents" }>;
 
@@ -27,6 +28,7 @@ export async function dryRunAgents(
   await ensureGitRepo(cwd);
 
   const repoRoot = (await getRepoRoot(cwd)) ?? cwd;
+  const rulesSummary = await loadRules(repoRoot);
   const files = targetFiles(spec);
   const statuses = await Promise.all(
     files.map(async (file) => {
@@ -43,6 +45,7 @@ export async function dryRunAgents(
     `  Repository:  ${repoRoot}`,
     `  Mode:        ${spec.update ? "surgical update" : "create/merge"}`,
     "  Agent:       repository-exploring agent; writes only the files below",
+    `  Rules:       ${describeRulesForDryRun(rulesSummary)}`,
     "Target files:",
     ...statuses,
   ].join("\n");
@@ -57,8 +60,9 @@ export async function runAgents(
   await ensureGitRepo(cwd);
 
   const repoRoot = (await getRepoRoot(cwd)) ?? cwd;
+  const rulesSummary = await loadRules(repoRoot);
   const { text } = await runAgent(
-    createAgentsSystemPrompt(spec.target, spec.update),
+    createAgentsSystemPrompt(spec.target, spec.update, rulesSummary.combined),
     `${spec.update ? "Update" : "Generate"} the agent context file(s) ${targetFiles(
       spec,
     )

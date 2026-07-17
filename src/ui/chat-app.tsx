@@ -4,6 +4,7 @@ import type { GlobalFlags } from "../commands.js";
 import { InitSetup, needsCredentialSetup } from "../credentials.js";
 import { executeCommand } from "../domain/execute.js";
 import { createThreadId } from "../llm/agent.js";
+import { caretSplit, handleEditingKey, makeEditorState } from "./editor.js";
 import { Panel } from "./panel.js";
 import { appendEvent, Header, RunLog, type LogItem } from "./run-view.js";
 import { getErrorMessage, isDebugMode } from "./shared.js";
@@ -30,7 +31,7 @@ export function ChatApp({
   const app = useApp();
   const { contentRows } = useViewport();
   const [turns, setTurns] = useState<ChatTurn[]>([]);
-  const [input, setInput] = useState("");
+  const [input, setInput] = useState(() => makeEditorState(""));
   const [running, setRunning] = useState(false);
   const [setupDone, setSetupDone] = useState(
     !needsCredentialSetup(flags.provider, flags.apiKey),
@@ -57,7 +58,7 @@ export function ChatApp({
     if (trimmed === "/clear") {
       threadId.current = createThreadId(process.cwd());
       setTurns([]);
-      setInput("");
+      setInput(makeEditorState(""));
       return;
     }
 
@@ -67,7 +68,7 @@ export function ChatApp({
       ...current,
       { id: turnId, message: trimmed, log: [], error: null, done: false },
     ]);
-    setInput("");
+    setInput(makeEditorState(""));
     setRunning(true);
 
     executeCommand(
@@ -130,18 +131,14 @@ export function ChatApp({
     }
 
     if (key.return) {
-      submit(input);
+      submit(input.text);
       return;
     }
 
-    if (key.backspace || key.delete || value === "") {
-      setInput((current) => current.slice(0, -1));
-      return;
-    }
-
-    if (value && !key.ctrl && !key.meta) {
-      setInput((current) => current + value.replace(/[\r\n]/gu, ""));
-    }
+    setInput(
+      (current) =>
+        handleEditingKey(current, value, key, { multiline: false }).state,
+    );
   });
 
   if (fatal !== null) {
@@ -178,6 +175,11 @@ export function ChatApp({
     // input box (3 rows) + prompt/error lines + dropped-turns indicator.
     contentRows - earlier.length - 6,
   );
+  // Streaming re-renders show the spinner instead; skip caret math for them.
+  const caret =
+    running || input.text.length === 0
+      ? null
+      : caretSplit(input.text, input.cursor);
 
   return (
     <Box flexDirection="column">
@@ -217,10 +219,17 @@ export function ChatApp({
           <Text color={theme.accentAlt}>{">"}</Text>{" "}
           {running ? (
             <Spinner label="Working..." />
-          ) : input.length > 0 ? (
-            input
+          ) : caret ? (
+            <Text>
+              {caret.before}
+              <Text inverse>{caret.at}</Text>
+              {caret.after}
+            </Text>
           ) : (
-            <Text color={theme.dim}>Ask about the repo, or /exit</Text>
+            <Text>
+              <Text inverse> </Text>{" "}
+              <Text color={theme.dim}>Ask about the repo, or /exit</Text>
+            </Text>
           )}
         </Text>
       </Panel>

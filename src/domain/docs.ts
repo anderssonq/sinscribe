@@ -1,15 +1,18 @@
 import { writeFile } from "node:fs/promises";
 import type { CommandSpec, GlobalFlags } from "../commands.js";
-import { ensureGitRepo } from "../git/repo.js";
+import { ensureGitRepo, getRepoRoot } from "../git/repo.js";
 import { runAgent } from "../llm/agent.js";
 import type { RunCallbacks } from "../llm/events.js";
 import { CliError } from "./errors.js";
 import { createDocsSystemPrompt } from "./prompts.js";
+import { describeRulesForDryRun, loadRules } from "./rules.js";
 
 type DocsSpec = Extract<CommandSpec, { name: "docs" }>;
 
 export async function dryRunDocs(spec: DocsSpec, cwd: string): Promise<string> {
   await ensureGitRepo(cwd);
+
+  const rulesSummary = await loadRules(await getRepoRoot(cwd));
 
   return [
     "sinscribe docs (dry run: no LLM call, no credentials read)",
@@ -23,6 +26,7 @@ export async function dryRunDocs(spec: DocsSpec, cwd: string): Promise<string> {
     `  Output:      markdown document${spec.out ? ` -> ${spec.out}` : " -> stdout (interactive runs offer an export)"}`,
     "  Writes:      no repository files (the CLI writes the export, not the agent)",
     "  Secrets:     .env files are never read",
+    `  Rules:       ${describeRulesForDryRun(rulesSummary)}`,
   ].join("\n");
 }
 
@@ -34,8 +38,9 @@ export async function runDocs(
 ): Promise<string> {
   await ensureGitRepo(cwd);
 
+  const rulesSummary = await loadRules(await getRepoRoot(cwd));
   const { text } = await runAgent(
-    createDocsSystemPrompt(),
+    createDocsSystemPrompt(rulesSummary.combined),
     `Produce the project documentation for the repository at ${cwd}.`,
     cwd,
     {

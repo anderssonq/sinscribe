@@ -15,6 +15,7 @@ import { extractJsonObject, runSingleShot } from "../llm/single-shot.js";
 import { loadSession, type SessionContext } from "../session/store.js";
 import { CliError } from "./errors.js";
 import { createBranchSystemPrompt, JSON_ONLY_INSTRUCTION } from "./prompts.js";
+import { describeRulesForDryRun, loadRules } from "./rules.js";
 
 type BranchSpec = Extract<CommandSpec, { name: "branch" }>;
 
@@ -95,6 +96,7 @@ export async function dryRunBranch(
   cwd: string,
 ): Promise<string> {
   const sessionContext = await loadCurrentSessionContext(cwd);
+  const rulesSummary = await loadRules(await getRepoRoot(cwd));
   const parsed = parseBranchInput(spec);
   const input = resolveBranchInput(spec, sessionContext);
   const fromSession = " (from session context)";
@@ -111,6 +113,7 @@ export async function dryRunBranch(
     `Ticket:      ${input.ticket ? `${input.ticket}${ticketNote}` : "(none detected)"}`,
     `Description: ${input.description ? `${input.description}${descriptionNote}` : "(none)"}`,
     `Type:        ${input.type}${spec.type ? "" : " (inferred)"}`,
+    `Rules:       ${describeRulesForDryRun(rulesSummary)}`,
     "",
     "Deterministic suggestion:",
     ...deterministicSuggestions(input).map((name) => `  ${name}`),
@@ -228,12 +231,14 @@ export async function generateBranchSuggestions(
     sessionContext?: SessionContext | null;
     /** Free-text format/style guidance; switches the model to whole-name output. */
     preferences?: string | null;
+    rules?: string | null;
     callbacks?: RunCallbacks;
   } = {},
 ): Promise<BranchSuggestions> {
   const sessionContext = options.sessionContext ?? null;
   const callbacks = options.callbacks ?? {};
   const preferences = options.preferences?.trim() || null;
+  const rules = options.rules ?? null;
   const input = resolveBranchInput(spec, sessionContext);
 
   // Nothing for a model to improve on without any description.
@@ -245,7 +250,7 @@ export async function generateBranchSuggestions(
     return deterministicResult(input);
   }
 
-  const systemPrompt = createBranchSystemPrompt(preferences !== null);
+  const systemPrompt = createBranchSystemPrompt(preferences !== null, rules);
   const userPrompt = buildBranchUserPrompt(
     input,
     spec,
@@ -316,8 +321,10 @@ export async function runBranch(
   callbacks: RunCallbacks = {},
 ): Promise<string> {
   const sessionContext = await loadCurrentSessionContext(cwd);
+  const rulesSummary = await loadRules(await getRepoRoot(cwd));
   const suggestions = await generateBranchSuggestions(spec, flags, {
     sessionContext,
+    rules: rulesSummary.combined,
     callbacks,
   });
 

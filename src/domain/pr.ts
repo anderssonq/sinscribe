@@ -26,6 +26,11 @@ import { getProviderLabel, resolveConfiguredProvider } from "../constants.js";
 import { InvalidModelJsonError, toFriendlyError } from "../llm/errors.js";
 import { CliError } from "./errors.js";
 import { createPrSystemPrompt, JSON_ONLY_INSTRUCTION } from "./prompts.js";
+import {
+  describeRulesForDryRun,
+  loadRules,
+  type RulesSummary,
+} from "./rules.js";
 
 type PrSpec = Extract<CommandSpec, { name: "pr" }>;
 
@@ -43,6 +48,7 @@ type PrContext = {
   diff: Awaited<ReturnType<typeof getLocalDiff>>;
   log: string;
   gitValues: PlaceholderValues;
+  rulesSummary: RulesSummary;
 };
 
 function baseSourceLabel(source: BaseSource): string {
@@ -60,6 +66,7 @@ async function gatherPrContext(spec: PrSpec, cwd: string): Promise<PrContext> {
   await ensureGitRepo(cwd);
 
   const repoRoot = await getRepoRoot(cwd);
+  const rulesSummary = await loadRules(repoRoot);
   const template = await resolveTemplate(spec.template, "pr", repoRoot);
   const rawBranch = await getCurrentBranch(cwd);
   const branch = rawBranch ?? "(detached HEAD)";
@@ -131,6 +138,7 @@ async function gatherPrContext(spec: PrSpec, cwd: string): Promise<PrContext> {
     diff,
     log,
     gitValues,
+    rulesSummary,
   };
 }
 
@@ -154,6 +162,7 @@ export async function dryRunPr(spec: PrSpec, cwd: string): Promise<string> {
     `Scope:     ${context.staged ? "staged changes only" : "all local changes (staged + unstaged)"} vs merge-base`,
     `Ticket:    ${context.ticket ?? "(none detected)"}`,
     `Session:   ${sessionLine}`,
+    `Rules:     ${describeRulesForDryRun(context.rulesSummary)}`,
     `Mode:      ${context.session?.pr ? "update existing description" : "create new description"}`,
     `Diff:      ${context.diff.stat.split("\n").at(-1)?.trim() ?? "(empty)"}${context.diff.truncated ? " [truncated for prompt]" : ""}`,
     "",
@@ -288,11 +297,15 @@ export async function createPrRun(
   ): Promise<string> => {
     const previousDescription =
       lastRendered?.trimEnd() ?? context.session?.pr?.description ?? null;
-    const systemPrompt = createPrSystemPrompt(context.template, {
-      update: previousDescription !== null,
-      feedback: feedback !== null,
-      ticket: context.ticket,
-    });
+    const systemPrompt = createPrSystemPrompt(
+      context.template,
+      {
+        update: previousDescription !== null,
+        feedback: feedback !== null,
+        ticket: context.ticket,
+      },
+      context.rulesSummary.combined,
+    );
     const userPrompt = buildPrUserPrompt(
       context,
       previousDescription,

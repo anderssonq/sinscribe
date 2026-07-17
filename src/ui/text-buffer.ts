@@ -1,11 +1,11 @@
-/** Pure editing helpers for MultilinePrompt (append-at-end cursor model). */
+/** Pure text and viewport helpers for the prompt components. */
 
 /**
- * Appends typed or pasted input, preserving line breaks: CRLF/CR normalize
- * to \n (single-line prompts strip them instead), tabs become two spaces,
- * and other control characters are dropped.
+ * Normalizes typed or pasted input before insertion: CRLF/CR normalize to
+ * \n, tabs become two spaces, and other control characters are dropped.
+ * Single-line prompts (`multiline: false`) drop newlines too.
  */
-export function appendInput(current: string, input: string): string {
+export function normalizeInsert(input: string, multiline: boolean): string {
   const normalized = input
     .replace(/\r\n/gu, "\n")
     .replace(/\r/gu, "\n")
@@ -14,26 +14,21 @@ export function appendInput(current: string, input: string): string {
   let kept = "";
 
   for (const char of normalized) {
-    const code = char.codePointAt(0) ?? 0;
-    const isControl = (code < 32 && code !== 10) || code === 127;
+    if (char === "\n") {
+      if (multiline) {
+        kept += char;
+      }
+      continue;
+    }
 
-    if (!isControl) {
+    const code = char.codePointAt(0) ?? 0;
+
+    if (code >= 32 && code !== 127) {
       kept += char;
     }
   }
 
-  return current + kept;
-}
-
-/**
- * Deletes the last character (code point, so emoji are not split into a
- * lone surrogate); deleting a trailing \n joins lines.
- */
-export function deleteLast(current: string): string {
-  const chars = Array.from(current);
-
-  chars.pop();
-  return chars.join("");
+  return kept;
 }
 
 /** Bottom-anchored viewport: the last `visible` lines + hidden-above count. */
@@ -45,6 +40,71 @@ export function visibleTail(
   const hidden = Math.max(0, lines.length - visible);
 
   return { lines: lines.slice(hidden), hidden };
+}
+
+/** Logical row and column (both in code points) of a cursor index. */
+export function cursorRowCol(
+  text: string,
+  cursor: number,
+): { row: number; col: number } {
+  const chars = Array.from(text);
+  const end = Math.min(Math.max(cursor, 0), chars.length);
+  let row = 0;
+  let col = 0;
+
+  for (let i = 0; i < end; i += 1) {
+    if (chars[i] === "\n") {
+      row += 1;
+      col = 0;
+    } else {
+      col += 1;
+    }
+  }
+
+  return { row, col };
+}
+
+/**
+ * Cursor-following viewport over logical lines: at most `visible` lines,
+ * scrolled only as far as needed to keep the cursor's row in view. Pass the
+ * previous call's `start` back in (Infinity on first render) so the window
+ * stays put while the cursor moves within it; Infinity anchors to the bottom,
+ * matching visibleTail's behavior when the cursor starts at the end.
+ */
+export function visibleWindow(
+  text: string,
+  cursor: number,
+  visible: number,
+  prevStart: number,
+): {
+  lines: string[];
+  start: number;
+  hiddenAbove: number;
+  hiddenBelow: number;
+  cursorRow: number;
+  cursorCol: number;
+} {
+  const allLines = text.split("\n");
+  const { row, col } = cursorRowCol(text, cursor);
+  const maxStart = Math.max(0, allLines.length - visible);
+  let start = Math.min(Math.max(prevStart, 0), maxStart);
+
+  if (row < start) {
+    start = row;
+  } else if (row >= start + visible) {
+    start = row - visible + 1;
+  }
+
+  const lines = allLines.slice(start, start + visible);
+
+  return {
+    lines,
+    start,
+    hiddenAbove: start,
+    hiddenBelow: Math.max(0, allLines.length - (start + lines.length)),
+    cursorRow: row - start,
+    cursorCol: col,
+  };
 }
 
 /**

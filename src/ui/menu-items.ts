@@ -2,12 +2,14 @@
 import type { BranchSession } from "../session/store.js";
 
 export type MenuChoice =
+  | "chat"
   | "session"
   | "clear"
   | "pr"
   | "prompt"
   | "branch"
   | "docs"
+  | "rules"
   | "settings"
   | "theme"
   | "help"
@@ -18,7 +20,7 @@ export type MenuItem = {
   label: string;
   hint: string;
   /** Muted uppercase group label rendered above the first item of a group. */
-  section?: "GIT" | "DOCS" | "CONFIG";
+  section?: "CHAT" | "GIT" | "DOCS" | "CONFIG";
   /** Rendered with a right-aligned green "✓ done" when true. */
   done?: boolean;
   /** Rendered dim; enter/click are no-ops. */
@@ -28,6 +30,12 @@ export type MenuItem = {
 };
 
 export const MENU_ITEMS: MenuItem[] = [
+  {
+    id: "chat",
+    label: "Interactive chat",
+    hint: "Ask about the repo, explore code, get quick answers",
+    section: "CHAT",
+  },
   {
     id: "session",
     label: "Create session context",
@@ -64,6 +72,12 @@ export const MENU_ITEMS: MenuItem[] = [
     label: "Generate documentation",
     hint: "Analyze the project and write markdown docs with mermaid diagrams",
     section: "DOCS",
+  },
+  {
+    id: "rules",
+    label: "Project rules",
+    hint: "Write rules that get added to every AI command's instructions",
+    section: "CONFIG",
   },
   {
     id: "settings",

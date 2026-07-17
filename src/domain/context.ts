@@ -1,10 +1,11 @@
 import { writeFile } from "node:fs/promises";
 import type { CommandSpec, GlobalFlags } from "../commands.js";
-import { ensureGitRepo } from "../git/repo.js";
+import { ensureGitRepo, getRepoRoot } from "../git/repo.js";
 import { runAgent } from "../llm/agent.js";
 import type { RunCallbacks } from "../llm/events.js";
 import { CliError } from "./errors.js";
 import { createContextSystemPrompt } from "./prompts.js";
+import { describeRulesForDryRun, loadRules } from "./rules.js";
 
 type ContextSpec = Extract<CommandSpec, { name: "context" }>;
 
@@ -13,6 +14,8 @@ export async function dryRunContext(
   cwd: string,
 ): Promise<string> {
   await ensureGitRepo(cwd);
+
+  const rulesSummary = await loadRules(await getRepoRoot(cwd));
 
   return [
     "sinscribe context (dry run: no LLM call, no credentials read)",
@@ -24,6 +27,7 @@ export async function dryRunContext(
     `  Output:      project-context brief (${spec.format})${spec.out ? ` -> ${spec.out}` : " -> stdout"}`,
     "  Writes:      no repository files",
     "  Secrets:     .env files are never read",
+    `  Rules:       ${describeRulesForDryRun(rulesSummary)}`,
   ].join("\n");
 }
 
@@ -35,8 +39,9 @@ export async function runContext(
 ): Promise<string> {
   await ensureGitRepo(cwd);
 
+  const rulesSummary = await loadRules(await getRepoRoot(cwd));
   const { text } = await runAgent(
-    createContextSystemPrompt(spec.format),
+    createContextSystemPrompt(spec.format, rulesSummary.combined),
     `Produce the project-context brief for the repository at ${cwd}.`,
     cwd,
     {
