@@ -1,5 +1,65 @@
 # sinscribe
 
+## 0.1.0-beta.3
+
+### Minor Changes
+
+- 1338708: # ✨ feat: "Rules" — author-defined instructions for every AI command
+
+  A new menu item, **Project rules** (CONFIG section), lets you write free-text
+  rules that get added to the system prompt of every LLM-backed command —
+  `chat`, `pr`, `commit`, `branch`, `prompt`, `context`, `docs`, and `agents`.
+
+  - Pick "Your rules" (personal, `~/.sinscribe/rules.md`, applies to every repo)
+    or "Project rules" (team-shared, `<repo>/.sinscribe/rules.md`, meant to be
+    committed) and edit them in a multi-line textarea, same as the session
+    context wizard.
+  - **Both tiers combine additively** when both exist — your personal
+    preferences and the repo's rules both apply, labeled separately, rather than
+    one silently replacing the other (unlike the template system's
+    highest-tier-wins behavior).
+  - Every `--dry-run` output gains a `Rules:` line summarizing what's active.
+  - No rules files present ⇒ zero behavior change: every existing system prompt
+    is byte-identical to before.
+
+  `pr`/`commit`/`branch` still make exactly one model call each via
+  `runSingleShot`, with no tools or checkpointer — rules are plain text read
+  from local files before that one call, same as the diff or branch name.
+
+- 1338708: # ✨ feat: cursor-based word navigation in text prompts
+
+  Text prompts (the chat input, single-line `InlinePrompt`, and multi-line
+  `MultilinePrompt`) now carry a real cursor instead of only appending at the
+  end, so editing feels like a terminal/readline:
+
+  - **Word motion**: Option/Alt+←/→ (both the xterm modified-arrow and the
+    Esc+b/Esc+f encodings), plus Ctrl+←/→, jump by word.
+  - **Word delete**: Option/Alt+Backspace and Ctrl+W delete the previous word;
+    Esc+d deletes the next word.
+  - **Cursor & line motion**: ←/→ move by code point (emoji never split),
+    Ctrl+A/Ctrl+E jump to line start/end, and ↑/↓ move between lines in the
+    multi-line prompt with a cursor-following viewport.
+  - **Bug fix**: the chat input no longer deletes a character when an arrow,
+    Home/End, or other special key is pressed — unrecognized keys are now
+    no-ops.
+
+  The editing logic lives in a pure, fully unit-tested module
+  (`src/ui/editor.ts`), with an end-to-end harness that feeds real terminal
+  escape sequences through Ink into the rendered prompts. Selection
+  (Shift+Option+Arrow) is intentionally left for a follow-up.
+
+### Patch Changes
+
+- 1338708: # 🔖 fix: add "Interactive chat" to the menu
+
+  Bare `sinscribe` opened the menu-driven dashboard, but the interactive chat
+  session was only reachable by running `sinscribe <message>` directly from the
+  shell — it had no entry in the menu itself. Added "Interactive chat" as the
+  first, always-available item; picking it exits the menu and launches the same
+  chat session (menu and chat use different Ink render modes — alt-screen vs.
+  not — so chat launches as its own render pass right after the menu's exits,
+  rather than being nested inside it).
+
 ## 0.1.0-beta.2
 
 ### Minor Changes
