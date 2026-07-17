@@ -6,7 +6,10 @@
   },
   "changesets": [
     "agent-shell-env-scrub",
+    "ai-rules-feature",
     "initial-beta-release",
-    "kiro-freeze-responsive"
+    "kiro-freeze-responsive",
+    "menu-chat-item",
+    "textarea-word-navigation"
   ]
 }
