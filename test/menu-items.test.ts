@@ -44,6 +44,18 @@ describe("isOnWorkBranch", () => {
   });
 });
 
+describe("MENU_ITEMS", () => {
+  it("offers interactive chat as the first, always-available option", () => {
+    expect(MENU_ITEMS[0]).toMatchObject({ id: "chat", section: "CHAT" });
+  });
+
+  it("offers a rules item in the CONFIG section", () => {
+    expect(MENU_ITEMS.find((item) => item.id === "rules")).toMatchObject({
+      section: "CONFIG",
+    });
+  });
+});
+
 describe("buildMenuItems", () => {
   it("marks nothing done without a session on the base branch", () => {
     const items = buildMenuItems({

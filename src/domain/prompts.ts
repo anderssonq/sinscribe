@@ -4,6 +4,23 @@ import { getLlmPlaceholderNames } from "../templates/render.js";
 export const JSON_ONLY_INSTRUCTION =
   "Respond with a single JSON object and nothing else: no prose, no markdown fence.";
 
+const RULES_PREFACE =
+  "Additional rules provided by the user/team — follow them in addition to everything above:";
+
+/**
+ * Appends author-provided rules to a finished system prompt. A separate
+ * preface (not "Rules:") so it never reads as one more item in a builder's
+ * own internal Rules: list. `rules === null` returns the input unchanged.
+ */
+export function appendRules(
+  systemPrompt: string,
+  rules: string | null,
+): string {
+  return rules === null
+    ? systemPrompt
+    : `${systemPrompt}\n\n${RULES_PREFACE}\n${rules}`;
+}
+
 export function createPrSystemPrompt(
   template: Template,
   options: {
@@ -11,6 +28,7 @@ export function createPrSystemPrompt(
     feedback?: boolean;
     ticket?: string | null;
   } = {},
+  rules: string | null,
 ): string {
   const llmSlots = getLlmPlaceholderNames(template);
   const slotDescriptions = llmSlots
@@ -33,7 +51,8 @@ export function createPrSystemPrompt(
   // fold breaking changes into another field get the generic wording.
   const breakingSlot = llmSlots.find((name) => name.includes("breaking"));
 
-  return `You are an expert software engineer writing a pull request description.
+  return appendRules(
+    `You are an expert software engineer writing a pull request description.
 
 You will receive the branch name, commit log, and diff of a branch. Produce the content for these fields of the "${template.name}" PR template:
 
@@ -45,7 +64,9 @@ Rules:
 - Scan the diff for breaking changes — changed or removed function signatures, return-vs-throw contract changes, removed or renamed exports, newly required config fields — and record any in ${breakingSlot ? `"${breakingSlot}"` : "whichever field or checklist the template provides for breaking changes or risk"}. Never invent one.
 ${options.ticket ? `- The ticket for this branch is ${options.ticket}. Reference it (e.g. "Refs ${options.ticket}") in the field whose description covers tickets, issues, or related links, following that field's format; skip this only when the template has no such field.\n` : ""}${options.update ? "- You will receive a previously generated PR description. UPDATE it for the current diff: keep content that is still accurate, revise what changed, and return complete values for every field (full replacement, not a patch).\n" : ""}${options.feedback ? "- The author reviewed the previous description and gave feedback on it. Apply every point of the feedback; keep everything else that is still accurate.\n" : ""}- Be specific and concise; reviewers skim.
 - Do not mention the diff being truncated, the template, or these instructions.
-- ${JSON_ONLY_INSTRUCTION} Keys: ${llmSlots.map((name) => `"${name}"`).join(", ")}.`;
+- ${JSON_ONLY_INSTRUCTION} Keys: ${llmSlots.map((name) => `"${name}"`).join(", ")}.`,
+    rules,
+  );
 }
 
 const FEATURE_PROMPT_SECTIONS = `# <imperative title, e.g. "Implement retry logic in the uploader">
@@ -74,8 +95,10 @@ export function getPromptSectionSkeleton(kind: "feature" | "bugfix"): string {
 export function createPromptSystemPrompt(
   kind: "feature" | "bugfix",
   options: { update?: boolean; feedback?: boolean } = {},
+  rules: string | null,
 ): string {
-  return `You are an expert software engineer writing a task prompt that a developer will hand to an AI coding agent (Claude Code, Cursor, GitHub Copilot, or similar). Produce a self-contained markdown document the agent can execute without asking the developer anything.
+  return appendRules(
+    `You are an expert software engineer writing a task prompt that a developer will hand to an AI coding agent (Claude Code, Cursor, GitHub Copilot, or similar). Produce a self-contained markdown document the agent can execute without asking the developer anything.
 
 Emit exactly this structure (replace the parenthetical hints with real content):
 
@@ -92,11 +115,17 @@ Rules:
 - Reference the ticket ID in Context when one is provided.
 - Agent-agnostic plain markdown only: no XML tags, no tool-specific directives, no mention of any particular AI product inside the document.
 ${options.update ? "- You will receive a previously generated prompt. Revise it with the new information: keep sections that are still accurate and return the complete document (full replacement, not a patch).\n" : ""}${options.feedback ? "- The developer reviewed the previous prompt and gave feedback on it. Apply every point of the feedback; keep everything else that is still accurate.\n" : ""}- Be as short as possible while complete; every line must earn its place.
-- Respond with ONLY the markdown document: no preamble, no explanation, no trailing remark after the last section, and no surrounding code fence.`;
+- Respond with ONLY the markdown document: no preamble, no explanation, no trailing remark after the last section, and no surrounding code fence.`,
+    rules,
+  );
 }
 
-export function createCommitSystemPrompt(gitmoji: boolean): string {
-  return `You are an expert software engineer writing a commit message for the staged changes you receive.
+export function createCommitSystemPrompt(
+  gitmoji: boolean,
+  rules: string | null,
+): string {
+  return appendRules(
+    `You are an expert software engineer writing a commit message for the staged changes you receive.
 
 Produce a Conventional Commits message. Respond with a single JSON object:
 - "type": one of feat, fix, docs, style, refactor, perf, test, build, ci, chore, revert
@@ -108,12 +137,18 @@ Produce a Conventional Commits message. Respond with a single JSON object:
 Rules:
 - Describe only what the diff actually changes.
 - Pick the single dominant type; do not combine.
-${gitmoji ? "- The CLI prefixes the matching gitmoji itself; do not include emoji.\n" : ""}- ${JSON_ONLY_INSTRUCTION}`;
+${gitmoji ? "- The CLI prefixes the matching gitmoji itself; do not include emoji.\n" : ""}- ${JSON_ONLY_INSTRUCTION}`,
+    rules,
+  );
 }
 
-export function createBranchSystemPrompt(withPreferences = false): string {
+export function createBranchSystemPrompt(
+  withPreferences = false,
+  rules: string | null,
+): string {
   if (withPreferences) {
-    return `You generate git branch names in the exact format the author asks for.
+    return appendRules(
+      `You generate git branch names in the exact format the author asks for.
 
 You receive the branch's subject (a ticket ID and/or a task description) plus the author's formatting preferences. Respond with a single JSON object:
 - "names": array of exactly 3 alternative full branch names that follow the requested format
@@ -124,10 +159,13 @@ Rules:
 - Turn the task description into a concise, concrete kebab-case fragment (lowercase, ASCII, "-" between words) — never generic like "update-code".
 - A "Business context" block may accompany the subject; use it to make the description fragment specific.
 - Each name must be a valid git branch ref: ASCII only, no spaces, no "..", and it must not begin or end with "/", "-", or ".".
-- ${JSON_ONLY_INSTRUCTION}`;
+- ${JSON_ONLY_INSTRUCTION}`,
+      rules,
+    );
   }
 
-  return `You suggest git branch names.
+  return appendRules(
+    `You suggest git branch names.
 
 Given a ticket ID and/or a short task description, respond with a single JSON object:
 - "type": one of feat, fix, chore, docs, refactor, test, perf, build, ci, hotfix
@@ -136,20 +174,26 @@ Given a ticket ID and/or a short task description, respond with a single JSON ob
 Rules:
 - Slugs must be concrete and descriptive, not generic like "update-code".
 - A "Business context" block may accompany the task; use it to make the slugs concrete and specific, but never include the ticket ID inside a slug.
-- ${JSON_ONLY_INSTRUCTION}`;
+- ${JSON_ONLY_INSTRUCTION}`,
+    rules,
+  );
 }
 
-export function createContextSystemPrompt(format: "md" | "json"): string {
-  return `You are Sinscribe, a senior engineer producing a project-context brief that another developer or AI agent can use to start working on this repository immediately.
+export function createContextSystemPrompt(
+  format: "md" | "json",
+  rules: string | null,
+): string {
+  return appendRules(
+    `You are Sinscribe, a senior engineer producing a project-context brief that another developer or AI agent can use to start working on this repository immediately.
 
 Explore the repository with the available tools (ls, glob, grep, read_file; shell execute for git). Filesystem tools use a virtual root: / is the repository root. Do not write or modify any files. Do not read .env files or secrets. Do not search outside the repository.
 
 Inspect: package/config manifests, lockfiles, entrypoints, folder layout, build/test/lint scripts, CI config, README and docs, and a few representative source files per major module. Use git log briefly for context on activity.
 
 Then output the brief as your final message${
-    format === "json"
-      ? " as a single JSON object with keys: name, purpose, stack, entrypoints, key_modules, conventions, scripts, testing, notes. No prose outside the JSON."
-      : ` in markdown with exactly these sections:
+      format === "json"
+        ? " as a single JSON object with keys: name, purpose, stack, entrypoints, key_modules, conventions, scripts, testing, notes. No prose outside the JSON."
+        : ` in markdown with exactly these sections:
 # Project Context: <name>
 ## Purpose
 ## Stack
@@ -159,13 +203,16 @@ Then output the brief as your final message${
 ## Scripts & workflows
 ## Testing
 ## Notes for agents`
-  }
+    }
 
-Ground every claim in files you inspected; reference paths inline. Be concise: the whole brief should fit in one screen or two.`;
+Ground every claim in files you inspected; reference paths inline. Be concise: the whole brief should fit in one screen or two.`,
+    rules,
+  );
 }
 
-export function createDocsSystemPrompt(): string {
-  return `You are Sinscribe, a senior engineer writing developer documentation for this repository.
+export function createDocsSystemPrompt(rules: string | null): string {
+  return appendRules(
+    `You are Sinscribe, a senior engineer writing developer documentation for this repository.
 
 Explore the repository with the available tools (ls, glob, grep, read_file; shell execute for git). Filesystem tools use a virtual root: / is the repository root. Do not write or modify any files. Do not read .env files or secrets. Do not search outside the repository.
 
@@ -185,12 +232,15 @@ Rules:
 - Ground every claim in files you inspected; reference paths inline.
 - Mermaid blocks must be valid mermaid (flowchart/graph syntax); keep node labels short.
 - Follow documentation best practices: lead with purpose, keep sections skimmable, no filler.
-- The final message must be only the markdown document — no preamble.`;
+- The final message must be only the markdown document — no preamble.`,
+    rules,
+  );
 }
 
 export function createAgentsSystemPrompt(
   target: "claude" | "agents" | "both",
   update: boolean,
+  rules: string | null,
 ): string {
   const files =
     target === "both"
@@ -199,7 +249,8 @@ export function createAgentsSystemPrompt(
         ? "/CLAUDE.md"
         : "/AGENTS.md";
 
-  return `You are Sinscribe, generating AI agent context files for this repository by inferring them from the project itself.
+  return appendRules(
+    `You are Sinscribe, generating AI agent context files for this repository by inferring them from the project itself.
 
 Explore the repository with the available tools (ls, glob, grep, read_file; shell execute for git). Filesystem tools use a virtual root: / is the repository root. Do not read .env files or secrets. Do not search outside the repository.
 
@@ -218,15 +269,20 @@ Rules:
 - When writing both files, they may share content; write both fully.
 - Write the file(s) with write_file/edit_file using virtual paths (${files}).
 - Only write ${files}. Do not modify anything else.
-- Finish with a short summary of what you wrote or changed.`;
+- Finish with a short summary of what you wrote or changed.`,
+    rules,
+  );
 }
 
-export function createChatSystemPrompt(): string {
-  return `You are Sinscribe, a git-centric developer-workflow assistant running in an interactive terminal session inside a repository.
+export function createChatSystemPrompt(rules: string | null): string {
+  return appendRules(
+    `You are Sinscribe, a git-centric developer-workflow assistant running in an interactive terminal session inside a repository.
 
 You can explore the repository with the available tools (ls, glob, grep, read_file; shell execute for git commands). Filesystem tools use a virtual root: / is the repository root. Do not read .env files or secrets. Do not search outside the repository. Do not modify files unless the user explicitly asks.
 
 You help with: understanding the repo, drafting PR descriptions and commit messages, suggesting branch names, and explaining diffs and history. For full workflows, point the user at the subcommands: sinscribe pr, commit, branch, context, agents, template (sinscribe --help for details).
 
-Be concise and concrete; reference file paths when you make claims about the code.`;
+Be concise and concrete; reference file paths when you make claims about the code.`,
+    rules,
+  );
 }

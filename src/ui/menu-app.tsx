@@ -30,6 +30,13 @@ import {
   type BranchActionMode,
 } from "../domain/branch-actions.js";
 import { createCredentialPreview, saveSinscribeEnv } from "../env.js";
+import {
+  loadProjectRules,
+  loadRules,
+  loadUserRules,
+  saveProjectRules,
+  saveUserRules,
+} from "../domain/rules.js";
 import { testProviderConnection } from "../llm/healthcheck.js";
 import { resolveProviderApiKey } from "../llm/model.js";
 import { getRangeShortStat, getWorktreeShortStat } from "../git/diff.js";
@@ -104,6 +111,14 @@ type MenuView =
     }
   | { view: "session-review" }
   | { view: "clear-confirm" }
+  | { view: "rules-tier-pick" }
+  | { view: "rules-edit"; tier: "user"; initialValue: string }
+  | {
+      view: "rules-edit";
+      tier: "project";
+      repoRoot: string;
+      initialValue: string;
+    }
   | { view: "template-pick"; templates: TemplateEntry[]; updating: boolean }
   | { view: "theme-pick"; previous: string }
   | { view: "docs-run" }
@@ -182,6 +197,7 @@ const GIT_STATS_REFRESH_MS = 2000;
 export function MenuApp({
   flags,
   onResult,
+  onLaunchChat,
 }: {
   flags: GlobalFlags;
   /**
@@ -189,6 +205,12 @@ export function MenuApp({
    * the normal screen buffer after the alt-screen menu exits.
    */
   onResult?: (text: string) => void;
+  /**
+   * Signals that the user picked "Interactive chat": the menu exits (it and
+   * the chat session use different Ink render modes — alt-screen vs. not —
+   * so they cannot be nested) and the CLI launches ChatApp in response.
+   */
+  onLaunchChat?: () => void;
 }) {
   const app = useApp();
   const [mode, setMode] = useState<MenuView>({ view: "menu" });
@@ -436,12 +458,14 @@ export function MenuApp({
     setMode({ view: "running", label, stream: false });
 
     try {
+      const rulesSummary = await loadRules(repoRoot);
       const suggestions = await generateBranchSuggestions(
         { name: "branch", input: "", type: null },
         flags,
         {
           sessionContext: session?.context ?? null,
           preferences,
+          rules: rulesSummary.combined,
           callbacks: {
             debug: isDebugMode(),
             onEvent: (event) => {
@@ -472,6 +496,51 @@ export function MenuApp({
         action,
         baseRef: session?.context?.baseRef ?? detectedBase,
       });
+    } catch (error) {
+      showError(label, getErrorMessage(error));
+    }
+  }
+
+  /** Opens the rules editor for the chosen tier, pre-filled with its current content. */
+  async function openRulesEditor(tier: "user" | "project"): Promise<void> {
+    if (tier === "project") {
+      if (repoRoot === null) {
+        showError("Project rules", "Not inside a git repository.");
+        return;
+      }
+
+      setMode({
+        view: "rules-edit",
+        tier,
+        repoRoot,
+        initialValue: (await loadProjectRules(repoRoot)) ?? "",
+      });
+      return;
+    }
+
+    setMode({
+      view: "rules-edit",
+      tier,
+      initialValue: (await loadUserRules()) ?? "",
+    });
+  }
+
+  async function saveRulesAndReturn(
+    editing: Extract<MenuView, { view: "rules-edit" }>,
+    value: string,
+  ): Promise<void> {
+    const label = editing.tier === "project" ? "Project rules" : "Your rules";
+
+    try {
+      const filePath =
+        editing.tier === "project"
+          ? await saveProjectRules(editing.repoRoot, value)
+          : await saveUserRules(value);
+
+      const result = `Saved ${filePath}`;
+
+      onResult?.(result);
+      setMode({ view: "result", label, result, error: null });
     } catch (error) {
       showError(label, getErrorMessage(error));
     }
@@ -643,6 +712,10 @@ export function MenuApp({
 
   function handleSelect(choice: MenuChoice) {
     switch (choice) {
+      case "chat":
+        onLaunchChat?.();
+        app.exit();
+        return;
       case "session":
         if (ensureBranch("Create session context")) {
           setMode({
@@ -693,6 +766,9 @@ export function MenuApp({
 
         setLog([]);
         setMode({ view: "docs-run" });
+        return;
+      case "rules":
+        setMode({ view: "rules-tier-pick" });
         return;
       case "settings": {
         const provider = resolveConfiguredProvider();
@@ -892,6 +968,7 @@ export function MenuApp({
       active={
         mode.view === "menu" ||
         mode.view === "clear-confirm" ||
+        mode.view === "rules-tier-pick" ||
         mode.view === "template-pick" ||
         mode.view === "theme-pick" ||
         mode.view === "branch-pick" ||
@@ -1001,6 +1078,46 @@ export function MenuApp({
               />
             ) : null}
           </Box>
+        ) : null}
+        {mode.view === "rules-tier-pick" ? (
+          <SelectList
+            isActive
+            items={[
+              {
+                id: "project",
+                label: "Project rules",
+                hint: "Team-shared, committed to the repo (.sinscribe/rules.md)",
+              },
+              {
+                id: "user",
+                label: "Your rules",
+                hint: "Personal, applies to every repo (~/.sinscribe/rules.md)",
+              },
+            ]}
+            onCancel={goToMenu}
+            onSelect={(id) => {
+              void openRulesEditor(id === "user" ? "user" : "project");
+            }}
+            title="Edit which rules?"
+          />
+        ) : null}
+        {mode.view === "rules-edit" ? (
+          <MultilinePrompt
+            allowEmpty
+            initialValue={mode.initialValue}
+            isActive
+            label={
+              mode.tier === "project"
+                ? "Project rules — added to every AI command's instructions for this repo"
+                : "Your rules — added to every AI command's instructions in every repo"
+            }
+            onCancel={goToMenu}
+            onSubmit={(value) => {
+              void saveRulesAndReturn(mode, value);
+            }}
+            placeholder="e.g. Always write commit subjects in the imperative mood; never use gitmoji for docs changes"
+            visibleLines={12}
+          />
         ) : null}
         {mode.view === "session-review" ? (
           <Box flexDirection="column">

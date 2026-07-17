@@ -225,10 +225,14 @@ async function main(): Promise<void> {
       // text would vanish with the alt buffer on exit — so the menu reports
       // results and the last one is re-printed on the normal screen.
       const lastResult: { current: string | null } = { current: null };
+      let launchChat = false;
 
       await renderInteractive(
         <MenuApp
           flags={command.flags}
+          onLaunchChat={() => {
+            launchChat = true;
+          }}
           onResult={(text) => {
             lastResult.current = text;
           }}
@@ -239,6 +243,16 @@ async function main(): Promise<void> {
       if (lastResult.current !== null) {
         process.stdout.write(`--- last result ---\n${lastResult.current}\n`);
       }
+
+      // The menu and chat use different Ink render modes (alt-screen vs.
+      // not), so chat launches as its own renderInteractive call after the
+      // menu's has fully exited, rather than being nested inside it.
+      if (launchChat) {
+        await renderInteractive(
+          <ChatApp flags={command.flags} initialMessage={null} />,
+        );
+      }
+
       return;
     }
 

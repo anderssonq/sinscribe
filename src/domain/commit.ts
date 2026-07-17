@@ -1,10 +1,15 @@
 import type { CommandSpec, GlobalFlags } from "../commands.js";
 import { getStagedDiff, getWorktreeDiff, type DiffInfo } from "../git/diff.js";
-import { ensureGitRepo } from "../git/repo.js";
+import { ensureGitRepo, getRepoRoot } from "../git/repo.js";
 import type { RunCallbacks } from "../llm/events.js";
 import { extractJsonObject, runSingleShot } from "../llm/single-shot.js";
 import { CliError } from "./errors.js";
 import { createCommitSystemPrompt } from "./prompts.js";
+import {
+  describeRulesForDryRun,
+  loadRules,
+  type RulesSummary,
+} from "./rules.js";
 
 type CommitSpec = Extract<CommandSpec, { name: "commit" }>;
 
@@ -24,10 +29,12 @@ export const GITMOJI_BY_TYPE: Record<string, string> = {
 
 const COMMIT_TYPES = Object.keys(GITMOJI_BY_TYPE);
 
-async function gatherCommitDiff(
+type CommitContext = { diff: DiffInfo; rulesSummary: RulesSummary };
+
+async function gatherCommitContext(
   spec: CommitSpec,
   cwd: string,
-): Promise<DiffInfo> {
+): Promise<CommitContext> {
   await ensureGitRepo(cwd);
 
   const diff = spec.all ? await getWorktreeDiff(cwd) : await getStagedDiff(cwd);
@@ -40,14 +47,16 @@ async function gatherCommitDiff(
     );
   }
 
-  return diff;
+  const rulesSummary = await loadRules(await getRepoRoot(cwd));
+
+  return { diff, rulesSummary };
 }
 
 export async function dryRunCommit(
   spec: CommitSpec,
   cwd: string,
 ): Promise<string> {
-  const diff = await gatherCommitDiff(spec, cwd);
+  const { diff, rulesSummary } = await gatherCommitContext(spec, cwd);
   const skeleton = `${spec.gitmoji ? "<gitmoji> " : ""}<type>${spec.scope ? `(${spec.scope})` : "(<scope>)"}: <subject>\n\n<body?>`;
 
   return [
@@ -58,6 +67,7 @@ export async function dryRunCommit(
     diff.nameStatus,
     "",
     `Stats:     ${diff.stat.split("\n").at(-1)?.trim() ?? ""}${diff.truncated ? " [truncated for prompt]" : ""}`,
+    `Rules:     ${describeRulesForDryRun(rulesSummary)}`,
     "",
     "Message skeleton the model would fill:",
     "---",
@@ -72,7 +82,7 @@ export async function runCommit(
   cwd: string,
   callbacks: RunCallbacks = {},
 ): Promise<string> {
-  const diff = await gatherCommitDiff(spec, cwd);
+  const { diff, rulesSummary } = await gatherCommitContext(spec, cwd);
   const userPrompt = [
     spec.scope ? `Required scope: ${spec.scope}` : null,
     "Changed files:",
@@ -85,7 +95,7 @@ export async function runCommit(
     .join("\n");
 
   const { text } = await runSingleShot(
-    createCommitSystemPrompt(spec.gitmoji),
+    createCommitSystemPrompt(spec.gitmoji, rulesSummary.combined),
     userPrompt,
     {
       modelId: flags.modelId,

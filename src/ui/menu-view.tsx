@@ -3,24 +3,17 @@ import { Box, Text, useInput } from "ink";
 import { MENU_PANEL_TITLE } from "./branding.js";
 import { MENU_ITEMS, type MenuChoice, type MenuItem } from "./menu-items.js";
 import { useOnClick, useOnWheel } from "./mouse.js";
-import { Panel } from "./panel.js";
 import {
-  appendInput,
-  deleteLast,
-  visibleTail,
-  wrapLines,
-} from "./text-buffer.js";
+  caretSplit,
+  handleEditingKey,
+  insertAt,
+  makeEditorState,
+  maskedView,
+} from "./editor.js";
+import { Panel } from "./panel.js";
+import { visibleWindow, wrapLines } from "./text-buffer.js";
 import { theme } from "./theme.js";
 import { useViewport } from "./viewport.js";
-
-/**
- * True for SGR mouse sequences that Ink surfaces as literal text ("[<0;12;5M")
- * when mouse reporting is on — text prompts must never append them. Matches
- * the full sequence shape so pasted text that merely starts with "[<" passes.
- */
-function isMouseNoise(value: string): boolean {
-  return /^\[<\d+;\d+;\d+[Mm]/u.test(value);
-}
 
 /**
  * Rows the SelectList adds around its item window beyond the shared
@@ -547,8 +540,7 @@ export function InlinePrompt({
   initialValue = "",
   mask = false,
 }: InlinePromptProps) {
-  const [input, setInput] = useState(initialValue);
-  const shown = mask ? "*".repeat(Math.min(input.length, 40)) : input;
+  const [state, setState] = useState(() => makeEditorState(initialValue));
 
   useInput(
     (value, key) => {
@@ -558,7 +550,7 @@ export function InlinePrompt({
       }
 
       if (key.return) {
-        const trimmed = input.trim();
+        const trimmed = state.text.trim();
 
         if (trimmed.length > 0 || allowEmpty) {
           onSubmit(trimmed);
@@ -566,19 +558,18 @@ export function InlinePrompt({
         return;
       }
 
-      // Only real backspace/delete erase; other special keys (arrows,
-      // home/end, F-keys) arrive with an empty input and must be no-ops.
-      if (key.backspace || key.delete) {
-        setInput((current) => current.slice(0, -1));
-        return;
-      }
-
-      if (value && !key.ctrl && !key.meta && !isMouseNoise(value)) {
-        setInput((current) => current + value.replace(/[\r\n]/gu, ""));
-      }
+      setState(
+        (current) =>
+          handleEditingKey(current, value, key, { multiline: false }).state,
+      );
     },
     { isActive },
   );
+
+  const masked = mask
+    ? maskedView(Array.from(state.text).length, state.cursor, 40)
+    : null;
+  const split = caretSplit(state.text, state.cursor);
 
   return (
     <Box flexDirection="column">
@@ -586,10 +577,23 @@ export function InlinePrompt({
       <Box borderColor={theme.border} borderStyle="round" paddingX={1}>
         <Text>
           <Text color={theme.accentAlt}>{">"}</Text>{" "}
-          {input.length > 0 ? (
-            shown
+          {state.text.length === 0 ? (
+            <Text>
+              <Text inverse> </Text>{" "}
+              <Text color={theme.dim}>{placeholder}</Text>
+            </Text>
+          ) : masked ? (
+            <Text>
+              {"*".repeat(masked.before)}
+              <Text inverse>{masked.at}</Text>
+              {"*".repeat(masked.after)}
+            </Text>
           ) : (
-            <Text color={theme.dim}>{placeholder}</Text>
+            <Text>
+              {split.before}
+              <Text inverse>{split.at}</Text>
+              {split.after}
+            </Text>
           )}
         </Text>
       </Box>
@@ -629,7 +633,11 @@ export function MultilinePrompt({
   initialValue = "",
   visibleLines = 6,
 }: MultilinePromptProps) {
-  const [input, setInput] = useState(initialValue);
+  const [state, setState] = useState(() => makeEditorState(initialValue));
+  // Scroll offset of the cursor-following window; Infinity = bottom-anchored
+  // until the first render computes a real start. A ref (not state): it is
+  // derived from text/cursor during render and must not trigger re-renders.
+  const startRef = useRef(Infinity);
 
   useInput(
     (value, key) => {
@@ -639,7 +647,7 @@ export function MultilinePrompt({
       }
 
       if (key.ctrl && value === "d") {
-        const trimmed = input.trim();
+        const trimmed = state.text.trim();
 
         if (trimmed.length > 0 || allowEmpty) {
           onSubmit(trimmed);
@@ -648,26 +656,38 @@ export function MultilinePrompt({
       }
 
       if (key.return) {
-        setInput((current) => `${current}\n`);
+        setState((current) => insertAt(current, "\n", true));
         return;
       }
 
-      // Only real backspace/delete erase; other special keys (arrows,
-      // home/end, F-keys) arrive with an empty input and must be no-ops.
-      if (key.backspace || key.delete) {
-        setInput(deleteLast);
-        return;
-      }
-
-      if (value && !key.ctrl && !key.meta && !isMouseNoise(value)) {
-        setInput((current) => appendInput(current, value));
-      }
+      setState(
+        (current) =>
+          handleEditingKey(current, value, key, { multiline: true }).state,
+      );
     },
     { isActive },
   );
 
-  const { lines, hidden } = visibleTail(input, visibleLines);
-  const lastIndex = lines.length - 1;
+  let view = visibleWindow(
+    state.text,
+    state.cursor,
+    visibleLines,
+    startRef.current,
+  );
+
+  // Cap the box at its historical worst case (visibleLines + 1 rows): when
+  // both scroll indicators would show at once, give up one content row
+  // instead of growing the frame — over-tall Ink frames redraw glitchily.
+  if (view.hiddenAbove > 0 && view.hiddenBelow > 0 && visibleLines > 1) {
+    view = visibleWindow(
+      state.text,
+      state.cursor,
+      visibleLines - 1,
+      startRef.current,
+    );
+  }
+
+  startRef.current = view.start;
 
   return (
     <Box flexDirection="column">
@@ -678,23 +698,40 @@ export function MultilinePrompt({
         flexDirection="column"
         paddingX={1}
       >
-        {hidden > 0 ? (
+        {view.hiddenAbove > 0 ? (
           <Text color={theme.dim}>
-            … {hidden} more line{hidden === 1 ? "" : "s"} above
+            … {view.hiddenAbove} more line{view.hiddenAbove === 1 ? "" : "s"}{" "}
+            above
           </Text>
         ) : null}
-        {input.length === 0 ? (
+        {state.text.length === 0 ? (
           <Text>
             <Text inverse> </Text> <Text color={theme.dim}>{placeholder}</Text>
           </Text>
         ) : (
-          lines.map((line, index) => (
-            <Text key={index}>
-              {line}
-              {index === lastIndex ? <Text inverse> </Text> : null}
-            </Text>
-          ))
+          view.lines.map((line, index) => {
+            if (index !== view.cursorRow) {
+              // A bare empty <Text> collapses to zero height; keep the row.
+              return <Text key={index}>{line === "" ? " " : line}</Text>;
+            }
+
+            const split = caretSplit(line, view.cursorCol);
+
+            return (
+              <Text key={index}>
+                {split.before}
+                <Text inverse>{split.at}</Text>
+                {split.after}
+              </Text>
+            );
+          })
         )}
+        {view.hiddenBelow > 0 ? (
+          <Text color={theme.dim}>
+            … {view.hiddenBelow} more line{view.hiddenBelow === 1 ? "" : "s"}{" "}
+            below
+          </Text>
+        ) : null}
       </Box>
       <Text color={theme.dim}>
         enter for new line — ctrl+d to save

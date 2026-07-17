@@ -22,6 +22,7 @@ import {
 export const sinscribeEnvDir = path.join(os.homedir(), ".sinscribe");
 export const sinscribeEnvPath = path.join(sinscribeEnvDir, ".env");
 export const sinscribeTemplatesDir = path.join(sinscribeEnvDir, "templates");
+export const sinscribeRulesPath = path.join(sinscribeEnvDir, "rules.md");
 
 type EnvMap = Record<string, string>;
 
@@ -277,7 +278,7 @@ function formatEnvValue(value: string): string {
     .replace(/\n/gu, "\\n")}"`;
 }
 
-function isFileNotFoundError(error: unknown): boolean {
+export function isFileNotFoundError(error: unknown): boolean {
   return (
     error instanceof Error &&
     "code" in error &&

@@ -1,6 +1,7 @@
 import type { CommandSpec, GlobalFlags } from "../commands.js";
 import type { RunCallbacks } from "../llm/events.js";
 import { runAgent } from "../llm/agent.js";
+import { getRepoRoot } from "../git/repo.js";
 import { dryRunAgents, runAgents } from "./agents.js";
 import { dryRunBranch, runBranch } from "./branch.js";
 import { dryRunCommit, runCommit } from "./commit.js";
@@ -9,6 +10,7 @@ import { dryRunDocs, runDocs } from "./docs.js";
 import { dryRunPr, runPr } from "./pr.js";
 import { dryRunPrompt, runPrompt } from "./prompt.js";
 import { createChatSystemPrompt } from "./prompts.js";
+import { describeRulesForDryRun, loadRules } from "./rules.js";
 import { runTemplateCommand } from "./template.js";
 
 /** Deterministic scaffold output: no LLM call, no credential read. */
@@ -33,13 +35,17 @@ export async function executeDryRun(
       return dryRunAgents(command, cwd);
     case "template":
       return runTemplateCommand(command, cwd, true);
-    case "chat":
+    case "chat": {
+      const rulesSummary = await loadRules(await getRepoRoot(cwd));
+
       return [
         "sinscribe chat (dry run: no LLM call, no credentials read)",
         "",
         `Message: ${command.message ?? "(interactive session)"}`,
         "Agent:   repository chat agent (read-only exploration)",
+        `Rules:   ${describeRulesForDryRun(rulesSummary)}`,
       ].join("\n");
+    }
   }
 }
 
@@ -68,8 +74,9 @@ export async function executeCommand(
     case "template":
       return runTemplateCommand(command, cwd, false);
     case "chat": {
+      const rulesSummary = await loadRules(await getRepoRoot(cwd));
       const { text } = await runAgent(
-        createChatSystemPrompt(),
+        createChatSystemPrompt(rulesSummary.combined),
         command.message ?? "Introduce yourself in two sentences.",
         cwd,
         {

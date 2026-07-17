@@ -119,7 +119,7 @@ export function MouseProvider({
 
     // Direct stdin listener: Node multicasts data events, so Ink's own
     // keyboard handling is unaffected (it sees mouse bytes as ignorable
-    // text — see isMouseNoise in menu-view.tsx for the prompt-side guard).
+    // text — see isMouseNoise in editor.ts for the prompt-side guard).
     const onData = (data: Buffer | string) => {
       const { events, rest } = parseSgrMouse(restRef.current + String(data));
 

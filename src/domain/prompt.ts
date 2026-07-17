@@ -22,6 +22,11 @@ import {
   createPromptSystemPrompt,
   getPromptSectionSkeleton,
 } from "./prompts.js";
+import {
+  describeRulesForDryRun,
+  loadRules,
+  type RulesSummary,
+} from "./rules.js";
 
 type PromptSpec = Extract<CommandSpec, { name: "prompt" }>;
 
@@ -58,12 +63,14 @@ type PromptContext = {
   log: string;
   /** name-status + stat tail vs the base; null when no base or no changes. */
   changedFiles: string | null;
+  rulesSummary: RulesSummary;
 };
 
 async function gatherPromptContext(cwd: string): Promise<PromptContext> {
   await ensureGitRepo(cwd);
 
   const repoRoot = await getRepoRoot(cwd);
+  const rulesSummary = await loadRules(repoRoot);
   const rawBranch = await getCurrentBranch(cwd);
   const branch = rawBranch ?? "(detached HEAD)";
   const session =
@@ -82,6 +89,7 @@ async function gatherPromptContext(cwd: string): Promise<PromptContext> {
       session,
       log: await getRecentCommits(cwd, 10),
       changedFiles: null,
+      rulesSummary,
     };
   }
 
@@ -101,6 +109,7 @@ async function gatherPromptContext(cwd: string): Promise<PromptContext> {
     session,
     log,
     changedFiles: diff.isEmpty ? null : `${diff.nameStatus}\n${statTail}`,
+    rulesSummary,
   };
 }
 
@@ -245,10 +254,11 @@ export async function createPromptRun(
     callbacks: RunCallbacks = {},
   ): Promise<string> => {
     const previousPrompt = lastGenerated;
-    const systemPrompt = createPromptSystemPrompt(kind, {
-      update: previousPrompt !== null,
-      feedback: feedback !== null,
-    });
+    const systemPrompt = createPromptSystemPrompt(
+      kind,
+      { update: previousPrompt !== null, feedback: feedback !== null },
+      context.rulesSummary.combined,
+    );
     const userPrompt = buildPromptUserPrompt(
       context,
       kind,
@@ -333,6 +343,7 @@ export async function dryRunPrompt(
     `Base:        ${context.baseRef ?? "(none detected — the prompt still works without one)"}`,
     `Ticket:      ${context.ticket ?? "(none detected)"}`,
     `Session:     ${sessionLine}`,
+    `Rules:       ${describeRulesForDryRun(context.rulesSummary)}`,
     `Description: ${descriptionLine}`,
     `Export:      ${spec.out ?? `${PROMPT_EXPORT_FILENAME} and/or clipboard, offered after approval`}`,
     "",
