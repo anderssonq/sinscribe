@@ -10,6 +10,7 @@
     "initial-beta-release",
     "kiro-freeze-responsive",
     "menu-chat-item",
-    "textarea-word-navigation"
+    "textarea-word-navigation",
+    "version-flag"
   ]
 }
