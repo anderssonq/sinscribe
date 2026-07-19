@@ -39,6 +39,8 @@ export const OPENCODE_GO_BASE_URL = "https://opencode.ai/zen/go/v1";
 export const CLI_DISPLAY_NAME = "Sinscribe";
 
 function readPackageVersion(): string {
+  // Works from src/ (tsx dev) and dist/ (published build) alike: rootDir and
+  // outDir sit one level below the package root, where package.json lives.
   const here = dirname(fileURLToPath(import.meta.url));
   const packageJsonPath = join(here, "..", "package.json");
   const packageJson = JSON.parse(readFileSync(packageJsonPath, "utf8")) as {
