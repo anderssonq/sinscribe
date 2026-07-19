@@ -17,6 +17,7 @@ import {
   resolveConfiguredProvider,
   resolveProviderBaseUrl,
   SELECTABLE_PROVIDERS,
+  SINSCRIBE_VERSION,
   type SinscribeProvider,
 } from "../src/constants.js";
 import { resolveModelId } from "../src/llm/model.js";
@@ -158,6 +159,12 @@ describe("legacy provider regression tripwire", () => {
       expect(getProviderApiKeyEnvKey(typedProvider)).toBe(envKey);
       expect(providerSupportsAgentic(typedProvider)).toBe(true);
     }
+  });
+});
+
+describe("SINSCRIBE_VERSION", () => {
+  it("reads a semver-shaped version from package.json", () => {
+    expect(SINSCRIBE_VERSION).toMatch(/^\d+\.\d+\.\d+/u);
   });
 });
 

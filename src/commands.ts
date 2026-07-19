@@ -48,6 +48,7 @@ export type CommandSpec =
 
 export type CliCommand =
   | { kind: "help"; exitCode: 0 }
+  | { kind: "version"; exitCode: 0 }
   | { kind: "error"; exitCode: 1; message: string }
   | { kind: "run"; exitCode: 0; command: CommandSpec; flags: GlobalFlags };
 
@@ -77,6 +78,10 @@ export function parseCommand(argv: string[]): CliCommand {
 
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
+
+    if (arg === "--version" || arg === "-v") {
+      return { kind: "version", exitCode: 0 };
+    }
 
     if (arg === "--help" || arg === "-h") {
       help = true;
@@ -656,6 +661,7 @@ Global options
   --model-id <id>      Model ID for this run
   --provider <name>    Provider override for this run (not persisted)
   --api-key <key>      API key override for this run (not persisted)
+  -v, --version        Print the sinscribe version
   -h, --help           Show this help
 
 Examples

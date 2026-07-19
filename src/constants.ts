@@ -1,3 +1,7 @@
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+
 export const BASETEN_API_KEY_ENV_KEY = "BASETEN_API_KEY";
 export const FIREWORKS_API_KEY_ENV_KEY = "FIREWORKS_API_KEY";
 export const OPENAI_API_KEY_ENV_KEY = "OPENAI_API_KEY";
@@ -33,7 +37,20 @@ export const DEFAULT_PROVIDER = "opencode-go";
 export const OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
 export const OPENCODE_GO_BASE_URL = "https://opencode.ai/zen/go/v1";
 export const CLI_DISPLAY_NAME = "Sinscribe";
-export const SINSCRIBE_VERSION = "0.0.1";
+
+function readPackageVersion(): string {
+  // Works from src/ (tsx dev) and dist/ (published build) alike: rootDir and
+  // outDir sit one level below the package root, where package.json lives.
+  const here = dirname(fileURLToPath(import.meta.url));
+  const packageJsonPath = join(here, "..", "package.json");
+  const packageJson = JSON.parse(readFileSync(packageJsonPath, "utf8")) as {
+    version: string;
+  };
+
+  return packageJson.version;
+}
+
+export const SINSCRIBE_VERSION = readPackageVersion();
 
 export type SinscribeProvider =
   | "anthropic"
