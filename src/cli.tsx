@@ -3,6 +3,7 @@ import "./ui/no-color.js";
 import type { ReactElement } from "react";
 import { render } from "ink";
 import { getHelpText, parseCommand, type CliCommand } from "./commands.js";
+import { SINSCRIBE_VERSION } from "./constants.js";
 import { needsCredentialSetup } from "./credentials.js";
 import { CliError } from "./domain/errors.js";
 import {
@@ -160,6 +161,12 @@ async function main(): Promise<void> {
 
   if (command.kind === "help") {
     process.stdout.write(`${getHelpText()}\n`);
+    process.exitCode = 0;
+    return;
+  }
+
+  if (command.kind === "version") {
+    process.stdout.write(`${SINSCRIBE_VERSION}\n`);
     process.exitCode = 0;
     return;
   }

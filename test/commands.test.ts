@@ -182,6 +182,30 @@ describe("parseCommand", () => {
     expect(parseCommand(["pr", "--help"])).toMatchObject({ kind: "help" });
   });
 
+  it("parses version", () => {
+    expect(parseCommand(["--version"])).toMatchObject({
+      kind: "version",
+      exitCode: 0,
+    });
+    expect(parseCommand(["-v"])).toMatchObject({
+      kind: "version",
+      exitCode: 0,
+    });
+  });
+
+  it("version wins over a subcommand or other flags", () => {
+    expect(parseCommand(["-v", "pr", "--base", "main"])).toMatchObject({
+      kind: "version",
+    });
+    expect(parseCommand(["pr", "--version"])).toMatchObject({
+      kind: "version",
+    });
+  });
+
+  it("mentions version in the help text", () => {
+    expect(getHelpText()).toContain("--version");
+  });
+
   it("parses a provider override", () => {
     expect(parseCommand(["pr", "--provider", "Anthropic"])).toMatchObject({
       kind: "run",
