@@ -1,6 +1,6 @@
 {
   "name": "sinscribe",
-  "version": "0.1.0-beta.4",
+  "version": "1.0.0",
   "description": "A git-centric developer-workflow assistant CLI: PR descriptions, commit messages, branch names, project context briefs, and AI agent context files.",
   "license": "MIT",
   "author": "Andersson Quintero (https://github.com/anderssonq)",

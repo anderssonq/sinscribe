@@ -9,5 +9,3 @@ coverage/
 .claude/skills/
 AGENT_PROMPT.md
 ARCHITECTURE.md
-RELEASE_PLAN_PROMPT.md
-TODO.md

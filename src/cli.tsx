@@ -228,39 +228,56 @@ async function main(): Promise<void> {
   if (command.command.name === "chat") {
     // Bare invocation: menu-driven dashboard. With a message: chat session.
     if (command.command.message === null) {
-      // Alt-screen clips content taller than the viewport, and generated
-      // text would vanish with the alt buffer on exit — so the menu reports
-      // results and the last one is re-printed on the normal screen.
-      const lastResult: { current: string | null } = { current: null };
-      let launchChat = false;
+      // Menu ⇄ chat loop: /exit in a menu-launched chat returns here and
+      // re-renders the menu; quitting the menu, Ctrl+C, or a fatal error
+      // leaves the loop and ends the process.
+      for (;;) {
+        // Alt-screen clips content taller than the viewport, and generated
+        // text would vanish with the alt buffer on exit — so the menu reports
+        // results and the last one is re-printed on the normal screen.
+        const lastResult: { current: string | null } = { current: null };
+        let launchChat = false;
 
-      await renderInteractive(
-        <MenuApp
-          flags={command.flags}
-          onLaunchChat={() => {
-            launchChat = true;
-          }}
-          onResult={(text) => {
-            lastResult.current = text;
-          }}
-        />,
-        { altScreen: true },
-      );
-
-      if (lastResult.current !== null) {
-        process.stdout.write(`--- last result ---\n${lastResult.current}\n`);
-      }
-
-      // The menu and chat use different Ink render modes (alt-screen vs.
-      // not), so chat launches as its own renderInteractive call after the
-      // menu's has fully exited, rather than being nested inside it.
-      if (launchChat) {
         await renderInteractive(
-          <ChatApp flags={command.flags} initialMessage={null} />,
+          <MenuApp
+            flags={command.flags}
+            onLaunchChat={() => {
+              launchChat = true;
+            }}
+            onResult={(text) => {
+              lastResult.current = text;
+            }}
+          />,
+          { altScreen: true },
         );
-      }
 
-      return;
+        if (lastResult.current !== null) {
+          process.stdout.write(`--- last result ---\n${lastResult.current}\n`);
+        }
+
+        if (!launchChat) {
+          return;
+        }
+
+        // The menu and chat use different Ink render modes (alt-screen vs.
+        // not), so chat launches as its own renderInteractive call after the
+        // menu's has fully exited, rather than being nested inside it.
+        let exitToMenu = false;
+
+        await renderInteractive(
+          <ChatApp
+            flags={command.flags}
+            initialMessage={null}
+            onExitToMenu={() => {
+              exitToMenu = true;
+            }}
+          />,
+        );
+
+        if (!exitToMenu) {
+          return;
+        }
+      }
     }
 
     await renderInteractive(

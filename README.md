@@ -13,7 +13,7 @@ Y8ooooo. 88 88'  `88 Y8ooooo. 88'  `"" 88'  `88 88 88'  `88 88ooood8
 
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Node](https://img.shields.io/badge/node-%3E%3D20-brightgreen.svg)
-![Status](https://img.shields.io/badge/status-beta-orange.svg)
+[![npm](https://img.shields.io/npm/v/sinscribe.svg)](https://www.npmjs.com/package/sinscribe)
 ![Built with TypeScript](https://img.shields.io/badge/built%20with-TypeScript-3178C6.svg)
 
 </div>
@@ -26,10 +26,10 @@ context files (`CLAUDE.md` / `AGENTS.md`). It runs in your terminal as a
 one-shot command or an interactive chat agent.
 
 > [!NOTE]
-> **Beta (v0.0.1, pre-1.0).** Sinscribe is in active development and already in
-> daily use, but flags, defaults, and output may still change. It isn't on npm
-> yet — [install from source](#install); a global `npm install -g sinscribe` is
-> the next milestone.
+> **Stable (v1.0.0).** Sinscribe is in daily use and its CLI surface —
+> commands, flags, env vars, and config layout — is now covered by semver.
+> Install it globally with `npm install -g sinscribe`, or
+> [from source](#install) for development.
 
 ## Features
 
@@ -58,9 +58,12 @@ one-shot command or an interactive chat agent.
 
 ## Install
 
-> [!TIP]
-> **Coming soon:** `npm install -g sinscribe`. Until the first npm release,
-> install from source.
+```bash
+npm install -g sinscribe
+sinscribe --help
+```
+
+Or from source, for development:
 
 ```bash
 pnpm install
@@ -164,16 +167,16 @@ endpoint (free, no tokens) to verify the key and model before saving.
 
 ### Provider support
 
-| Provider                                                                         | Status                                                                 |
-| -------------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
-| `opencode-go`                                                                    | **Supported and maintained**                                           |
-| `openrouter`, `anthropic`, `openai`, `baseten`, `fireworks`, `openai-compatible` | Beta — kept selectable but not actively maintained or regularly tested |
-| `kiro-cli`                                                                       | Beta — drives AWS's official Kiro CLI; single-shot commands only       |
+| Provider                                                                         | Status                                                                      |
+| -------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
+| `opencode-go`                                                                    | **Recommended** — the default; supported and regularly tested               |
+| `kiro-cli`                                                                       | **Recommended** — drives AWS's official Kiro CLI; single-shot commands only |
+| `openrouter`, `anthropic`, `openai`, `baseten`, `fireworks`, `openai-compatible` | Selectable — not actively maintained or regularly tested                    |
 
 > [!WARNING]
-> Only OpenCode Go is exercised regularly. The beta providers ship as-is and may
-> lag behind their vendors' API changes — verify one with **Test connection**
-> before relying on it.
+> Only the recommended providers (OpenCode Go and Kiro CLI) are exercised
+> regularly. The others ship as-is and may lag behind their vendors' API
+> changes — verify one with **Test connection** before relying on it.
 
 ### Amazon Q Developer setup (`kiro-cli`)
 
@@ -287,9 +290,8 @@ Built with [Ink](https://github.com/vadimdemedes/ink),
 [LangChain](https://github.com/langchain-ai/langchainjs) /
 [LangGraph](https://github.com/langchain-ai/langgraphjs), and
 [deepagents](https://github.com/langchain-ai/deepagents). See
-[`ARCHITECTURE.md`](ARCHITECTURE.md) and [`DESIGN.md`](DESIGN.md) for the
-internals, and [`documentation.md`](documentation.md) for the maintainer
-reference.
+[`DESIGN.md`](DESIGN.md) for the internals, and
+[`documentation.md`](documentation.md) for the maintainer reference.
 
 ## Development
 

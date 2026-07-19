@@ -409,9 +409,10 @@ Per-branch state lives at `<repo>/.sinscribe/sessions/<branch>.json`
   name constants and validators (`isValidProvider`, `isValidModelId`,
   `resolveConfiguredProvider`, `resolveProviderBaseUrl`). Default provider is
   `opencode-go`, default model is its first preset (`kimi-k2.7-code`).
-  opencode-go is the **supported and maintained** provider; the other six
-  (openrouter, anthropic, openai, baseten, fireworks, openai-compatible) are
-  **beta** — selectable but not actively maintained or regularly tested.
+  opencode-go and kiro-cli are the **recommended** providers — supported and
+  regularly tested; the other six (openrouter, anthropic, openai, baseten,
+  fireworks, openai-compatible) are selectable but not actively maintained or
+  regularly tested.
   **This is the file to edit to add a provider or model preset.**
 - **`env.ts`** — owns `~/.sinscribe/.env`. `loadSinscribeEnv()` reads the file and
   fills `process.env` **only for unset keys** (process env always wins).

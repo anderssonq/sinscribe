@@ -12,6 +12,7 @@ import {
   getProviderCommand,
   getProviderLabel,
   getProviderModelOptions,
+  isProviderRecommended,
   isValidModelId,
   isValidProvider,
   resolveConfiguredProvider,
@@ -1279,7 +1280,9 @@ export function MenuApp({
                 isActive
                 items={SELECTABLE_PROVIDERS.map((provider) => ({
                   id: provider,
-                  label: getProviderLabel(provider),
+                  label: isProviderRecommended(provider)
+                    ? `${getProviderLabel(provider)} (Recommended)`
+                    : getProviderLabel(provider),
                   hint:
                     provider === mode.draft.provider
                       ? "current"

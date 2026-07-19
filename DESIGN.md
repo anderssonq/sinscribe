@@ -171,10 +171,11 @@ sinscribe/
 
 ## 5. Providers / config
 
-- Providers: `opencode-go` (**default and the only maintained provider**, Kimi
-  K2.7 Code default model), plus `openrouter`, `baseten`, `fireworks`,
-  `openai`, `openai-compatible`, `anthropic`, `kiro-cli` — all in **beta**
-  (selectable but not actively maintained or regularly tested).
+- Providers: `opencode-go` (**default**, Kimi K2.7 Code default model) and
+  `kiro-cli` are the **recommended** providers — supported and regularly
+  tested. The rest — `openrouter`, `baseten`, `fireworks`, `openai`,
+  `openai-compatible`, `anthropic` — stay selectable but are not actively
+  maintained or regularly tested.
   Shared `PROVIDER_CONFIGS` shape, base-URL override env keys, OpenRouter fallback route.
 - `ProviderConfig` is a discriminated union on `authKind`: `"api-key"`
   (everything but kiro-cli) vs `"local-cli"` (kiro-cli).
@@ -254,8 +255,9 @@ this application"` even with a perfectly correct request and a valid token.
 1. **Default provider = opencode-go, default model = Kimi K2.7 Code** (changed
    2026-07-08 from the original openrouter/GLM choice; the CLI still targets
    cheap models first). The full provider set is kept selectable
-   (openrouter / baseten / fireworks / openai / openai-compatible / anthropic)
-   but only opencode-go is supported and maintained — the rest are beta.
+   (openrouter / baseten / fireworks / openai / openai-compatible / anthropic),
+   but only opencode-go and kiro-cli are recommended — supported and regularly
+   tested; the rest are not actively maintained.
 2. **`branch` uses the LLM only when input is a description**; pure ticket ID input is
    handled deterministically.
 3. **Interactive mode kept** (bare `sinscribe` opens the Ink chat/agent); the
