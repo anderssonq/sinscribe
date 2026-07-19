@@ -8,6 +8,7 @@ import {
   getProviderCommand,
   getProviderLabel,
   getProviderModelOptions,
+  isProviderRecommended,
   isValidModelId,
   isValidProvider,
   OPENCODE_GO_API_KEY_ENV_KEY,
@@ -48,6 +49,10 @@ describe("opencode-go provider config", () => {
   it("uses the OpenCode Go label", () => {
     expect(config.label).toBe("OpenCode Go");
     expect(getProviderLabel("opencode-go")).toBe("OpenCode Go");
+  });
+
+  it("is flagged recommended", () => {
+    expect(isProviderRecommended("opencode-go")).toBe(true);
   });
 
   it("ships the eight OpenAI-compatible models with Kimi K2.7 Code as default", () => {
@@ -133,6 +138,21 @@ describe("kiro-cli provider config", () => {
   it("exposes no command for providers that are not local-cli", () => {
     expect(getProviderCommand("opencode-go")).toBeNull();
     expect(getProviderCommand("anthropic")).toBeNull();
+  });
+
+  it("is flagged recommended", () => {
+    expect(isProviderRecommended("kiro-cli")).toBe(true);
+  });
+});
+
+describe("recommended providers", () => {
+  // The picker suffixes these with "(Recommended)"; extending the set is a
+  // deliberate decision, not a side effect of adding a provider.
+  it("recommends exactly opencode-go and kiro-cli", () => {
+    expect(SELECTABLE_PROVIDERS.filter(isProviderRecommended)).toEqual([
+      "opencode-go",
+      "kiro-cli",
+    ]);
   });
 });
 

@@ -76,6 +76,8 @@ type ProviderConfigBase = {
   /** When true, the provider has no default endpoint and requires a base URL. */
   requiresBaseUrl?: boolean;
   label: string;
+  /** Marked with a "(Recommended)" suffix in the provider picker. */
+  recommended?: boolean;
   modelOptions: ProviderModelOption[];
 };
 
@@ -131,6 +133,7 @@ export const PROVIDER_CONFIGS: Record<SinscribeProvider, ProviderConfig> = {
     apiKeyEnvKey: OPENCODE_GO_API_KEY_ENV_KEY,
     baseURL: OPENCODE_GO_BASE_URL,
     label: "OpenCode Go",
+    recommended: true,
     modelOptions: [
       { id: "kimi-k2.7-code", label: "Kimi K2.7 Code" },
       { id: "glm-5.2", label: "GLM 5.2" },
@@ -201,6 +204,7 @@ export const PROVIDER_CONFIGS: Record<SinscribeProvider, ProviderConfig> = {
       "https://kiro.dev/docs/cli/) and run `kiro-cli login` once.",
     supportsAgentic: false,
     label: "Amazon Q Developer (Kiro CLI)",
+    recommended: true,
     // Straight from `kiro-cli chat --list-models`; the multiplier is the
     // credit cost per call, surfaced so the cheap options are obvious.
     modelOptions: [
@@ -231,6 +235,11 @@ export function getProviderConfig(provider: SinscribeProvider): ProviderConfig {
 
 export function getProviderLabel(provider: SinscribeProvider): string {
   return getProviderConfig(provider).label;
+}
+
+/** Whether the provider picker should mark this provider as recommended. */
+export function isProviderRecommended(provider: SinscribeProvider): boolean {
+  return getProviderConfig(provider).recommended === true;
 }
 
 /**

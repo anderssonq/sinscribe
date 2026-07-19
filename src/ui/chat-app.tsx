@@ -24,9 +24,16 @@ type ChatTurn = {
 export function ChatApp({
   flags,
   initialMessage,
+  onExitToMenu,
 }: {
   flags: GlobalFlags;
   initialMessage: string | null;
+  /**
+   * Set when chat was launched from the main menu: /exit hands control back
+   * to the caller's menu loop instead of ending the process. Direct-entry
+   * chat leaves it unset, so /exit keeps quitting the app.
+   */
+  onExitToMenu?: () => void;
 }) {
   const app = useApp();
   const { contentRows } = useViewport();
@@ -51,6 +58,7 @@ export function ChatApp({
 
     if (trimmed === "/exit" || trimmed === "/quit") {
       process.exitCode = 0;
+      onExitToMenu?.();
       app.exit();
       return;
     }
