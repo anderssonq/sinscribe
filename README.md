@@ -31,6 +31,10 @@ one-shot command or an interactive chat agent.
 > Install it globally with `npm install -g sinscribe`, or
 > [from source](#install) for development.
 
+<p align="center">
+  <img width="600" height="483" alt="sinscribe (1)" src="https://github.com/user-attachments/assets/f1604f79-ab7d-4623-a237-719384cd47ee" />
+</p>
+
 ## Features
 
 - **PR/MR descriptions** from your local changes vs the target branch, measured
