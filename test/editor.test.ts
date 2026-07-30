@@ -249,11 +249,23 @@ describe("insertAt", () => {
     });
   });
 
-  it("strips newlines in single-line mode", () => {
+  it("flattens newlines to a space in single-line mode", () => {
     expect(insertAt(state("ab", 1), "1\n2", false)).toEqual({
-      text: "a12b",
-      cursor: 3,
+      text: "a1 2b",
+      cursor: 4,
     });
+  });
+
+  it("inserts a paste larger than the argument limit without overflowing", () => {
+    // Guards the splice-with-spread this used to do: a coalesced paste can
+    // carry more code points than a call's argument list can hold.
+    const huge = "x".repeat(200_000);
+    const result = insertAt(state("ab", 1), huge, true);
+
+    expect(result.text.length).toBe(200_002);
+    expect(result.cursor).toBe(200_001);
+    expect(result.text.startsWith("ax")).toBe(true);
+    expect(result.text.endsWith("xb")).toBe(true);
   });
 
   it("expands tabs and drops other control characters", () => {
@@ -275,7 +287,7 @@ describe("insertAt", () => {
   it("is an identity no-op when nothing survives normalization", () => {
     const current = state("ab", 1);
 
-    expect(insertAt(current, "\n", false)).toBe(current);
+    expect(insertAt(current, String.fromCharCode(7), false)).toBe(current);
     expect(insertAt(current, "", true)).toBe(current);
   });
 });

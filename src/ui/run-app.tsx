@@ -10,6 +10,7 @@ import { appendEvent, Header, RunLog, type LogItem } from "./run-view.js";
 import { getErrorMessage, isDebugMode } from "./shared.js";
 import { Spinner } from "./spinner.js";
 import { theme } from "./theme.js";
+import { useViewport } from "./viewport.js";
 
 type RunAppProps = {
   command: CommandSpec;
@@ -24,6 +25,7 @@ type RunAppProps = {
 /** Runs a single command in the terminal UI, streaming agent activity. */
 export function RunApp({ command, flags, onResult }: RunAppProps) {
   const app = useApp();
+  const { contentRows } = useViewport();
   const [log, setLog] = useState<LogItem[]>([]);
   const [result, setResult] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -168,7 +170,14 @@ export function RunApp({ command, flags, onResult }: RunAppProps) {
         }
       />
       {showStream || log.length > 0 ? (
-        <RunLog log={log} waiting={result === null && error === null} />
+        // Bounded: the log grows by a row per streamed chunk, and once the
+        // frame reaches the terminal's height Ink clears and repaints the
+        // whole screen for every chunk that follows.
+        <RunLog
+          log={log}
+          maxRows={contentRows - 2}
+          waiting={result === null && error === null}
+        />
       ) : null}
       {result === null && error === null && !showStream ? (
         <Spinner label="Generating..." />

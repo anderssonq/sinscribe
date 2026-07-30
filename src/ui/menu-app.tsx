@@ -81,7 +81,53 @@ import {
 import { getErrorMessage, isDebugMode } from "./shared.js";
 import { Spinner } from "./spinner.js";
 import { setTerminalBackground, supportsBackgroundControl } from "./term.js";
+import { wrapLines } from "./text-buffer.js";
 import { getActiveThemeId, getThemeChoices, setTheme, theme } from "./theme.js";
+
+/**
+ * A saved-context field, bounded to `maxRows`. The value can be the multi-KB
+ * block someone pasted into the requirements prompt, and rendering it whole
+ * pushed this frame past the terminal's height — where Ink stops diffing and
+ * clears the screen on every render. The full text stays one keystroke away
+ * ("e" reopens the editor).
+ */
+function ContextField({
+  label,
+  value,
+  maxRows,
+  columns,
+}: {
+  label: string;
+  value: string;
+  maxRows: number;
+  columns: number;
+}) {
+  const rows = wrapLines(`${label}${value}`, Math.max(20, columns - 4));
+  const shown = rows.slice(0, Math.max(1, maxRows));
+  const hidden = rows.length - shown.length;
+
+  return (
+    <>
+      {shown.map((row, index) => (
+        <Text key={index} wrap="truncate-end">
+          {index === 0 ? (
+            <>
+              <Text color={theme.dim}>{label}</Text>
+              {row.slice(label.length)}
+            </>
+          ) : (
+            row
+          )}
+        </Text>
+      ))}
+      {hidden > 0 ? (
+        <Text color={theme.dim} wrap="truncate-end">
+          … {hidden} more row{hidden === 1 ? "" : "s"} — e to edit
+        </Text>
+      ) : null}
+    </>
+  );
+}
 
 type SessionDraft = {
   feature: string;
@@ -232,6 +278,10 @@ export function MenuApp({
   // (theme preview) — setTheme() alone does not trigger a React render.
   const [, forceThemeRepaint] = useState(0);
   const { columns, contentRows } = useViewport();
+  // Rows each long session-context field may show in the review frame: the
+  // panel's other four lines, its borders, the title and the footer take the
+  // rest, and the two long fields split what is left.
+  const fieldRows = Math.max(1, Math.min(8, Math.floor((contentRows - 8) / 2)));
   const nextLogId = useRef(1);
 
   /** Builds the initial context form draft from the saved session, defaulting
@@ -907,7 +957,14 @@ export function MenuApp({
   // Any key returns to the menu from the result screen. (Help owns its own
   // input so it can scroll; esc/q there returns to the menu.)
   useInput(
-    () => {
+    (value) => {
+      // Ignore multi-character chunks: a paste arrives as many of them, and
+      // each would re-enter the menu and re-run the ~6 git probes behind
+      // refreshSession.
+      if (value.length > 1) {
+        return;
+      }
+
       goToMenu();
     },
     { isActive: setupDone && mode.view === "result" },
@@ -1117,26 +1174,29 @@ export function MenuApp({
               void saveRulesAndReturn(mode, value);
             }}
             placeholder="e.g. Always write commit subjects in the imperative mood; never use gitmoji for docs changes"
-            visibleLines={12}
           />
         ) : null}
         {mode.view === "session-review" ? (
           <Box flexDirection="column">
             <Text color={theme.accent}>Session context for {branch}</Text>
             <Panel>
-              <Text>
-                <Text color={theme.dim}>Feature: </Text>
-                {session?.context?.feature}
-              </Text>
-              <Text>
+              <ContextField
+                columns={columns}
+                label="Feature: "
+                maxRows={fieldRows}
+                value={session?.context?.feature ?? "(none)"}
+              />
+              <Text wrap="truncate-end">
                 <Text color={theme.dim}>Ticket: </Text>
                 {session?.context?.ticket ?? "(none)"}
               </Text>
-              <Text>
-                <Text color={theme.dim}>Requirements &amp; docs: </Text>
-                {session?.context?.requirements ?? "(none)"}
-              </Text>
-              <Text>
+              <ContextField
+                columns={columns}
+                label="Requirements & docs: "
+                maxRows={fieldRows}
+                value={session?.context?.requirements ?? "(none)"}
+              />
+              <Text wrap="truncate-end">
                 <Text color={theme.dim}>Target branch: </Text>
                 {session?.context?.baseRef ?? "(auto-detect)"}
               </Text>

@@ -202,22 +202,33 @@ export function deleteWordRight(state: EditorState): EditorState {
   return { text: chars.join(""), cursor: state.cursor };
 }
 
-/** Inserts typed or pasted input at the cursor after normalization. */
+/**
+ * Inserts typed or pasted input at the cursor after normalization. Joins
+ * slices rather than `splice(..., ...insert)`: a coalesced paste can carry
+ * more code points than the argument limit, and the spread would blow the
+ * stack (RangeError) on exactly the large paste this path exists to serve.
+ */
 export function insertAt(
   state: EditorState,
   raw: string,
   multiline: boolean,
 ): EditorState {
-  const insert = Array.from(normalizeInsert(raw, multiline));
+  const insert = normalizeInsert(raw, multiline);
+  const length = Array.from(insert).length;
 
-  if (insert.length === 0) {
+  if (length === 0) {
     return state;
   }
 
   const chars = Array.from(state.text);
 
-  chars.splice(state.cursor, 0, ...insert);
-  return { text: chars.join(""), cursor: state.cursor + insert.length };
+  return {
+    text:
+      chars.slice(0, state.cursor).join("") +
+      insert +
+      chars.slice(state.cursor).join(""),
+    cursor: state.cursor + length,
+  };
 }
 
 /**
