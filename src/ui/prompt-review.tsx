@@ -54,10 +54,12 @@ type Phase =
 
 /**
  * Rows this flow renders around the tail-clamped prompt during review: the
- * heading, panel borders, the hidden-count note, and the select list.
- * Passed to useReviewVisibleLines so the clamp adapts to terminal height.
+ * heading (1), the panel's borders and hidden-count note (3), and the select
+ * list (10 — its title, two borders, two scroll indicators, four items and a
+ * footer). Passed to useReviewVisibleLines so the clamp adapts to terminal
+ * height.
  */
-const REVIEW_EXTRA_ROWS = 12;
+const REVIEW_EXTRA_ROWS = 14;
 
 type PromptReviewFlowProps = {
   spec: PromptSpec;

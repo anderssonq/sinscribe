@@ -53,6 +53,26 @@ export function computeViewport(columns: number, rows: number): Viewport {
   };
 }
 
+/**
+ * Rows of text a prompt box may show: grows with the window instead of the
+ * fixed clamps the prompts used to carry, but never past `max` — every row the
+ * input takes is a row the history above it loses, and a frame that reaches
+ * the terminal's height makes Ink clear and repaint the whole screen per
+ * render (ink.js's `outputHeight >= stdout.rows` branch), which reads as a
+ * freeze. `chromeRows` is what the view spends around the text: label,
+ * borders, hint footer.
+ */
+export function computePromptRows(
+  contentRows: number,
+  chromeRows: number,
+  bounds: { min: number; max: number },
+): number {
+  return Math.max(
+    bounds.min,
+    Math.min(bounds.max, contentRows - Math.max(0, chromeRows)),
+  );
+}
+
 /** Current terminal size, re-rendering on resize (0/undefined → defaults). */
 export function useTerminalSize(): { columns: number; rows: number } {
   const { stdout } = useStdout();

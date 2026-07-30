@@ -243,6 +243,9 @@ export function RunLog({
   );
 }
 
+// tailWindowLog charges every non-text item exactly one row, so tool calls,
+// statuses and debug lines are truncated rather than wrapped — a long
+// `bash(git log --format=…)` used to cost the log rows nobody budgeted.
 function LogLine({ item }: { item: LogItem }) {
   if (item.type === "tool") {
     const color =
@@ -253,7 +256,7 @@ function LogLine({ item }: { item: LogItem }) {
           : theme.dim;
 
     return (
-      <Text>
+      <Text wrap="truncate-end">
         <Text color={color}>
           {item.status === "running"
             ? "~ "
@@ -267,11 +270,19 @@ function LogLine({ item }: { item: LogItem }) {
   }
 
   if (item.type === "status") {
-    return <Text color={theme.dim}>~ {item.content}</Text>;
+    return (
+      <Text color={theme.dim} wrap="truncate-end">
+        ~ {item.content}
+      </Text>
+    );
   }
 
   if (item.type === "debug") {
-    return <Text color={theme.dim}>- {item.content}</Text>;
+    return (
+      <Text color={theme.dim} wrap="truncate-end">
+        - {item.content}
+      </Text>
+    );
   }
 
   return <Text wrap="wrap">{item.content}</Text>;

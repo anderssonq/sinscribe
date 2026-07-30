@@ -249,6 +249,19 @@ this application"` even with a perfectly correct request and a valid token.
   16-line review clamps are height-aware, `RunLog`/chat history are
   tail-windowed, and the main menu windows its items — no view exceeds the
   terminal at extreme sizes (tested in `test/ui-render.test.ts`).
+- **Bounded prompt rows (2026-07-30)**: a frame can outgrow the terminal
+  because of its **content**, not just the window size — the previous pass only
+  addressed the latter. Ink stops diffing at `outputHeight >= stdout.rows` and
+  writes `clearTerminal + output` per render, synchronously to the TTY, so a
+  pasted block in a prompt read as a freeze. Text prompts now render only the
+  visual rows that fit, windowed around the caret (`wrapRows` /
+  `visibleRowWindow` / `visibleSlice` in `src/ui/text-buffer.ts`), which makes
+  their height independent of the text they hold; `useTextInput`
+  (`src/ui/use-text-input.ts`) coalesces the many stdin reads of one paste into
+  a single insert. With height bounded, the box size comes from the viewport
+  (`computePromptRows`) instead of a fixed six lines. `TailPanel`, the streamed
+  run log in direct/docs runs, the saved session context and long tool lines
+  were the other content-driven overflows and are windowed the same way.
 
 ## 6. Open decisions (defaults chosen, flag if you disagree)
 

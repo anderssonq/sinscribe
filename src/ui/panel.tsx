@@ -1,7 +1,8 @@
 import type { ReactNode } from "react";
 import { Box, Text } from "ink";
-import { visibleTail } from "./text-buffer.js";
+import { visibleTail, wrapLines } from "./text-buffer.js";
 import { theme } from "./theme.js";
+import { useTerminalSize } from "./viewport.js";
 
 type PanelProps = {
   /** Renders a hand-drawn titled top border (the main-menu style). */
@@ -68,8 +69,13 @@ type TailPanelProps = {
 
 /**
  * A Panel showing the tail of a block of text — the review/done frames'
- * shared shape: an optional "… N more lines above" note, then the last
- * `maxRows` lines.
+ * shared shape: an optional "… N more rows above" note, then the last
+ * `maxRows` rows.
+ *
+ * The tail is taken over VISUAL rows, not logical lines: the text here is
+ * model output, whose paragraphs are routinely wider than the terminal, and
+ * counting logical lines let a "6-row" panel render 24 rows — past the height
+ * where Ink stops diffing and clears the whole screen on every render.
  */
 export function TailPanel({
   text,
@@ -78,17 +84,21 @@ export function TailPanel({
   title,
   width,
 }: TailPanelProps) {
-  const { lines, hidden } = visibleTail(text, maxRows);
+  const { columns } = useTerminalSize();
+  // Two borders and two columns of padding, or the caller's fixed width.
+  const textWidth = Math.max(20, (width ?? columns) - 4);
+  const rows = wrapLines(text, textWidth);
+  const { lines, hidden } = visibleTail(rows.join("\n"), maxRows);
 
   return (
     <Panel title={title} width={width}>
       {hidden > 0 ? (
-        <Text color={theme.dim}>
-          … {hidden} more line{hidden === 1 ? "" : "s"} above{hiddenHint}
+        <Text color={theme.dim} wrap="truncate-end">
+          … {hidden} more row{hidden === 1 ? "" : "s"} above{hiddenHint}
         </Text>
       ) : null}
       {lines.map((line, index) => (
-        <Text key={index} wrap="wrap">
+        <Text key={index} wrap="truncate-end">
           {line.length > 0 ? line : " "}
         </Text>
       ))}

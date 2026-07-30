@@ -3,8 +3,12 @@ import { PassThrough } from "node:stream";
 import { createElement } from "react";
 import { render, Text } from "ink";
 import { describe, expect, it } from "vitest";
-import { MainMenu } from "../src/ui/menu-view.js";
-import { Panel } from "../src/ui/panel.js";
+import {
+  InlinePrompt,
+  MainMenu,
+  MultilinePrompt,
+} from "../src/ui/menu-view.js";
+import { Panel, TailPanel } from "../src/ui/panel.js";
 import { RunLog, type LogItem } from "../src/ui/run-view.js";
 
 /**
@@ -183,4 +187,52 @@ describe("UI at extreme terminal sizes", () => {
       expect(line.length).toBeLessThanOrEqual(30);
     }
   });
+
+  it("TailPanel counts wrapped rows, not logical lines", async () => {
+    // Model output is one long paragraph per line; counting logical lines let
+    // a six-row panel render four times that and outgrow the terminal.
+    const paragraph = "word ".repeat(200).trim();
+    const frames = await renderOnce(
+      createElement(TailPanel, {
+        text: `${paragraph}\n${paragraph}\n${paragraph}`,
+        maxRows: 6,
+      }),
+      80,
+      24,
+    );
+
+    // 6 text rows + the hidden-count note + two borders.
+    expect(tallestFrameRows(frames)).toBeLessThanOrEqual(9);
+    expect(fullestFrame(frames)).toContain("more rows above");
+  });
+
+  for (const [columns, rows] of menuSizes) {
+    it(`prompts holding a pasted block fit ${columns}x${rows}`, async () => {
+      // initialValue is read on mount, so no key driving is needed here.
+      const pasted = "Acceptance criteria: the counters refresh. ".repeat(60);
+
+      for (const prompt of [
+        createElement(MultilinePrompt, {
+          initialValue: pasted,
+          isActive: true,
+          label: "Requirements & docs — acceptance criteria, business rules",
+          onCancel: () => undefined,
+          onSubmit: () => undefined,
+          placeholder: "…",
+        }),
+        createElement(InlinePrompt, {
+          initialValue: pasted,
+          isActive: true,
+          label: "Ticket — Jira/business ticket ID",
+          onCancel: () => undefined,
+          onSubmit: () => undefined,
+          placeholder: "…",
+        }),
+      ]) {
+        const frames = await renderOnce(prompt, columns, rows);
+
+        expect(tallestFrameRows(frames)).toBeLessThan(rows);
+      }
+    });
+  }
 });

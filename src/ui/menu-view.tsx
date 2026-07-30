@@ -11,9 +11,10 @@ import {
   maskedView,
 } from "./editor.js";
 import { Panel } from "./panel.js";
-import { visibleWindow, wrapLines } from "./text-buffer.js";
+import { visibleRowWindow, visibleSlice, wrapLines } from "./text-buffer.js";
 import { theme } from "./theme.js";
-import { useViewport } from "./viewport.js";
+import { useTextInput } from "./use-text-input.js";
+import { computePromptRows, useViewport } from "./viewport.js";
 
 /**
  * Rows the SelectList adds around its item window beyond the shared
@@ -540,10 +541,13 @@ export function InlinePrompt({
   initialValue = "",
   mask = false,
 }: InlinePromptProps) {
+  const { columns } = useViewport();
   const [state, setState] = useState(() => makeEditorState(initialValue));
+  // Scroll offset of the horizontal window (see MultilinePrompt's startRef).
+  const startRef = useRef(Infinity);
 
-  useInput(
-    (value, key) => {
+  useTextInput(
+    (value, key, pasted) => {
       if (key.escape) {
         onCancel();
         return;
@@ -558,6 +562,11 @@ export function InlinePrompt({
         return;
       }
 
+      if (pasted) {
+        setState((current) => insertAt(current, value, false));
+        return;
+      }
+
       setState(
         (current) =>
           handleEditingKey(current, value, key, { multiline: false }).state,
@@ -566,16 +575,32 @@ export function InlinePrompt({
     { isActive },
   );
 
+  // Columns the value may draw in: the box's two borders and paddingX, the
+  // "> " prefix, and the caret cell (which sits past the text when appending).
+  const textWidth = Math.max(8, columns - 6);
+  const length = Array.from(state.text).length;
+  // Once the value outgrows the box it scrolls sideways, and the two edge
+  // markers get a reserved column each so the row's width never changes.
+  const scrolls = length >= textWidth;
+  const view = visibleSlice(
+    state.text,
+    state.cursor,
+    scrolls ? Math.max(4, textWidth - 2) : textWidth,
+    startRef.current,
+  );
+
+  startRef.current = view.hiddenLeft;
+
   const masked = mask
-    ? maskedView(Array.from(state.text).length, state.cursor, 40)
+    ? maskedView(length, state.cursor, Math.max(4, textWidth - 1))
     : null;
-  const split = caretSplit(state.text, state.cursor);
+  const split = caretSplit(view.text, view.cursorCol);
 
   return (
     <Box flexDirection="column">
       {label ? <Text color={theme.accent}>{label}</Text> : null}
       <Box borderColor={theme.border} borderStyle="round" paddingX={1}>
-        <Text>
+        <Text wrap="truncate-end">
           <Text color={theme.accentAlt}>{">"}</Text>{" "}
           {state.text.length === 0 ? (
             <Text>
@@ -590,9 +615,15 @@ export function InlinePrompt({
             </Text>
           ) : (
             <Text>
+              <Text color={theme.dim}>
+                {scrolls ? (view.hiddenLeft > 0 ? "…" : " ") : ""}
+              </Text>
               {split.before}
               <Text inverse>{split.at}</Text>
               {split.after}
+              <Text color={theme.dim}>
+                {scrolls ? (view.hiddenRight > 0 ? "…" : " ") : ""}
+              </Text>
             </Text>
           )}
         </Text>
@@ -614,9 +645,18 @@ type MultilinePromptProps = {
   allowEmpty?: boolean;
   /** Pre-filled input (read once on mount — remount with `key` to reseed). */
   initialValue?: string;
-  /** Rows shown in the box; older lines scroll out of view above. */
+  /** Caps the rows shown in the box; by default only the viewport caps them. */
   visibleLines?: number;
 };
+
+/** Smallest usable text area; below this the box sheds its hint row instead. */
+const MIN_PROMPT_ROWS = 2;
+/**
+ * Ceiling on the text area however tall the terminal is: every row here is a
+ * row the surrounding view cannot use, and a very tall box scrolls more than
+ * it shows.
+ */
+const MAX_PROMPT_ROWS = 20;
 
 /**
  * Multi-line bordered text prompt for long-form answers: enter inserts a
@@ -631,16 +671,17 @@ export function MultilinePrompt({
   isActive,
   allowEmpty = false,
   initialValue = "",
-  visibleLines = 6,
+  visibleLines,
 }: MultilinePromptProps) {
+  const { columns, contentRows } = useViewport();
   const [state, setState] = useState(() => makeEditorState(initialValue));
   // Scroll offset of the cursor-following window; Infinity = bottom-anchored
   // until the first render computes a real start. A ref (not state): it is
   // derived from text/cursor during render and must not trigger re-renders.
   const startRef = useRef(Infinity);
 
-  useInput(
-    (value, key) => {
+  useTextInput(
+    (value, key, pasted) => {
       if (key.escape) {
         onCancel();
         return;
@@ -652,6 +693,11 @@ export function MultilinePrompt({
         if (trimmed.length > 0 || allowEmpty) {
           onSubmit(trimmed);
         }
+        return;
+      }
+
+      if (pasted) {
+        setState((current) => insertAt(current, value, true));
         return;
       }
 
@@ -668,21 +714,44 @@ export function MultilinePrompt({
     { isActive },
   );
 
-  let view = visibleWindow(
+  const hint = `enter for new line — ctrl+d to save${
+    allowEmpty ? " (empty to skip)" : ""
+  } — esc to go back`;
+  // The label and hint are full-width text that wraps, so they are measured,
+  // not assumed: a 97-character label costs two rows at 80 columns and three
+  // at 60. Plus the box's two borders and the one scroll-indicator row the
+  // window can add.
+  const labelRows = wrapLines(label, columns).length;
+  const hintRows = wrapLines(hint, columns).length;
+  const fixedRows = labelRows + 3;
+  // On a terminal too short for both, the hint is what goes: an unusable
+  // one-row text area helps nobody, and an over-tall frame is worse than a
+  // missing hint.
+  const showHint = contentRows - fixedRows - hintRows >= MIN_PROMPT_ROWS;
+  const rows = computePromptRows(
+    contentRows,
+    fixedRows + (showHint ? hintRows : 0),
+    { min: MIN_PROMPT_ROWS, max: visibleLines ?? MAX_PROMPT_ROWS },
+  );
+  // Two borders, two columns of padding, and the caret cell past the text.
+  const width = Math.max(8, columns - 5);
+
+  let view = visibleRowWindow(
     state.text,
     state.cursor,
-    visibleLines,
+    width,
+    rows,
     startRef.current,
   );
 
-  // Cap the box at its historical worst case (visibleLines + 1 rows): when
-  // both scroll indicators would show at once, give up one content row
+  // When both scroll indicators would show at once, give up one content row
   // instead of growing the frame — over-tall Ink frames redraw glitchily.
-  if (view.hiddenAbove > 0 && view.hiddenBelow > 0 && visibleLines > 1) {
-    view = visibleWindow(
+  if (view.hiddenAbove > 0 && view.hiddenBelow > 0 && rows > 1) {
+    view = visibleRowWindow(
       state.text,
       state.cursor,
-      visibleLines - 1,
+      width,
+      rows - 1,
       startRef.current,
     );
   }
@@ -699,26 +768,33 @@ export function MultilinePrompt({
         paddingX={1}
       >
         {view.hiddenAbove > 0 ? (
-          <Text color={theme.dim}>
-            … {view.hiddenAbove} more line{view.hiddenAbove === 1 ? "" : "s"}{" "}
+          <Text color={theme.dim} wrap="truncate-end">
+            … {view.hiddenAbove} more row{view.hiddenAbove === 1 ? "" : "s"}{" "}
             above
           </Text>
         ) : null}
         {state.text.length === 0 ? (
-          <Text>
+          <Text wrap="truncate-end">
             <Text inverse> </Text> <Text color={theme.dim}>{placeholder}</Text>
           </Text>
         ) : (
-          view.lines.map((line, index) => {
+          // Pre-wrapped rows already fit; truncate-end guards the one case the
+          // code-point width cannot see (a double-width glyph) from adding a
+          // visual row the budget did not account for.
+          view.rows.map((row, index) => {
             if (index !== view.cursorRow) {
               // A bare empty <Text> collapses to zero height; keep the row.
-              return <Text key={index}>{line === "" ? " " : line}</Text>;
+              return (
+                <Text key={index} wrap="truncate-end">
+                  {row === "" ? " " : row}
+                </Text>
+              );
             }
 
-            const split = caretSplit(line, view.cursorCol);
+            const split = caretSplit(row, view.cursorCol);
 
             return (
-              <Text key={index}>
+              <Text key={index} wrap="truncate-end">
                 {split.before}
                 <Text inverse>{split.at}</Text>
                 {split.after}
@@ -727,16 +803,13 @@ export function MultilinePrompt({
           })
         )}
         {view.hiddenBelow > 0 ? (
-          <Text color={theme.dim}>
-            … {view.hiddenBelow} more line{view.hiddenBelow === 1 ? "" : "s"}{" "}
+          <Text color={theme.dim} wrap="truncate-end">
+            … {view.hiddenBelow} more row{view.hiddenBelow === 1 ? "" : "s"}{" "}
             below
           </Text>
         ) : null}
       </Box>
-      <Text color={theme.dim}>
-        enter for new line — ctrl+d to save
-        {allowEmpty ? " (empty to skip)" : ""} — esc to go back
-      </Text>
+      {showHint ? <Text color={theme.dim}>{hint}</Text> : null}
     </Box>
   );
 }

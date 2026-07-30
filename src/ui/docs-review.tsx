@@ -215,7 +215,10 @@ export function DocsReviewFlow({
   if (phase.phase === "generating") {
     return (
       <Box flexDirection="column">
-        <RunLog log={log} waiting />
+        {/* Bounded: the log grows by a row per streamed chunk, and a frame
+            that reaches the terminal's height makes Ink clear and repaint the
+            whole screen for every chunk after that. */}
+        <RunLog log={log} maxRows={doneRows} waiting />
       </Box>
     );
   }
