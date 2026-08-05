@@ -1,5 +1,41 @@
 # sinscribe
 
+## 1.2.0
+
+### Minor Changes
+
+- 3752086: Carry a prompting session forward with `HANDOFF.md`
+
+  After you approve a feature/bugfix prompt, `sinscribe prompt` now offers to write a
+  `HANDOFF.md` at the repo root — a snapshot of where the branch stands (what was
+  done, what was decided, what is still open), not an accumulated log. The draft is
+  model-written and reviewable in the same approve/modify loop as the prompt itself;
+  the `## Last updated` date is stamped by the CLI rather than asked of the model.
+
+  The next `sinscribe prompt` on that branch reads the file back and feeds it to the
+  model, so a second iteration starts warm instead of re-deriving settled ground. A
+  handoff written on a different branch is still passed along, but labeled as such
+  rather than presented as the current state.
+
+  Adds `--handoff` to write the file without asking — the only route in `-p/--print`
+  and other non-TTY runs, which cannot ask. `--dry-run` reports whether a handoff
+  would be read back in and whether one would be written.
+
+### Patch Changes
+
+- 3752086: Stop the review screens from freezing short terminals
+
+  The PR, prompt and docs review screens sized their preview panel with a floor of
+  six rows, which on a short terminal handed back rows that did not exist. The
+  resulting frame reached the terminal's height, and Ink then cleared and repainted
+  the whole screen on every render instead of diffing — which reads as a freeze.
+  Measured: the prompt review screen rendered 20 rows into a 15-row terminal.
+
+  The preview is now dropped entirely when there is no room for it, leaving a
+  one-line note pointing at "View full". Regression tests assert both the frame
+  height and the absence of the `ESC[3J` (erase scrollback) sequence that is unique
+  to Ink's full-clear path.
+
 ## 1.1.0
 
 ### Minor Changes
