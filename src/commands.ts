@@ -29,6 +29,8 @@ export type CommandSpec =
       type: "feature" | "bugfix" | null;
       description: string | null;
       out: string | null;
+      /** Write HANDOFF.md without asking — the only route in print mode. */
+      handoff: boolean;
     }
   | { name: "commit"; all: boolean; scope: string | null; gitmoji: boolean }
   | { name: "branch"; input: string; type: BranchType | null }
@@ -318,6 +320,7 @@ function parsePrompt(
 ): CommandSpec | Extract<CliCommand, { kind: "error" }> {
   let type: "feature" | "bugfix" | null = null;
   let out: string | null = null;
+  let handoff = false;
   const descriptionParts: string[] = [];
 
   for (let index = 0; index < args.length; index += 1) {
@@ -347,6 +350,11 @@ function parsePrompt(
       continue;
     }
 
+    if (arg === "--handoff") {
+      handoff = true;
+      continue;
+    }
+
     if (arg.startsWith("-")) {
       return error(`Unknown option for prompt: ${arg}`);
     }
@@ -362,6 +370,7 @@ function parsePrompt(
     description:
       descriptionParts.length > 0 ? descriptionParts.join(" ") : null,
     out,
+    handoff,
   };
 }
 
@@ -622,8 +631,8 @@ Usage
                                            then optionally export PR_DESCRIPTION.md and/or copy to the clipboard)
   sinscribe prompt [options] [description] Generate a copy-ready feature/bugfix task prompt for an AI coding agent
                                            (interactive runs review the draft, then optionally export
-                                           AGENT_PROMPT.md and/or copy to the clipboard; without a description,
-                                           the saved session context is used)
+                                           AGENT_PROMPT.md and/or copy to the clipboard, and update HANDOFF.md;
+                                           without a description, the saved session context is used)
   sinscribe commit [options]               Generate a commit message from staged changes
   sinscribe branch <ticket|description>    Suggest branch names
   sinscribe context [options]              Extract a structured project-context brief
@@ -639,6 +648,8 @@ Command options
             --out <file>        Write the description to a file
   prompt    --type <type>       feature|bugfix (default: inferred from the description)
             --out <file>        Write the prompt to a file
+            --handoff           Also write HANDOFF.md, the branch's session handoff
+                                (interactive runs offer this after approval)
   commit    --all, -a           Use all tracked changes, not only staged
             --scope <scope>     Force the conventional-commit scope
             --no-gitmoji        Skip the gitmoji prefix
@@ -671,6 +682,7 @@ Examples
   sinscribe commit
   sinscribe branch ABC-123 add retry logic to uploader
   sinscribe prompt --type bugfix uploader crashes on empty files
+  sinscribe prompt --handoff -p "add retry logic to the uploader"
   sinscribe context --out CONTEXT.md
   sinscribe docs
   sinscribe agents --target claude

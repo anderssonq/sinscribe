@@ -2,6 +2,7 @@ import { writeFile } from "node:fs/promises";
 import { useEffect, useRef, useState } from "react";
 import { Box, Text } from "ink";
 import type { CommandSpec, GlobalFlags } from "../commands.js";
+import type { HandoffInput } from "../domain/handoff.js";
 import {
   createPromptRun,
   type PromptKind,
@@ -13,12 +14,13 @@ import {
   PROMPT_EXPORT_FILENAME,
 } from "../domain/prompt-export.js";
 import { copyToClipboard } from "../util/clipboard.js";
+import { HandoffReviewFlow } from "./handoff-review.js";
 import { MultilinePrompt, ScrollView, SelectList } from "./menu-view.js";
 import { Panel, TailPanel } from "./panel.js";
 import {
   fileExists,
   isWarningLine,
-  useReviewVisibleLines,
+  useReviewPreviewRows,
 } from "./review-shared.js";
 import { appendEvent, RunLog, type LogItem } from "./run-view.js";
 import { getErrorMessage, isDebugMode } from "./shared.js";
@@ -50,13 +52,20 @@ type Phase =
   | { phase: "export-pick"; content: string }
   | { phase: "overwrite-confirm"; content: string; wantClipboard: boolean }
   | { phase: "exporting"; content: string }
+  | {
+      phase: "handoff";
+      content: string;
+      summary: string[];
+      /** Built once on entry; null outside a repo. */
+      handoffInput: HandoffInput | null;
+    }
   | { phase: "done"; content: string; summary: string[] };
 
 /**
  * Rows this flow renders around the tail-clamped prompt during review: the
  * heading (1), the panel's borders and hidden-count note (3), and the select
  * list (10 — its title, two borders, two scroll indicators, four items and a
- * footer). Passed to useReviewVisibleLines so the clamp adapts to terminal
+ * footer). Passed to useReviewPreviewRows so the clamp adapts to terminal
  * height.
  */
 const REVIEW_EXTRA_ROWS = 14;
@@ -81,7 +90,7 @@ export function PromptReviewFlow({
   isActive,
   onDone,
 }: PromptReviewFlowProps) {
-  const reviewRows = useReviewVisibleLines(REVIEW_EXTRA_ROWS);
+  const reviewRows = useReviewPreviewRows(REVIEW_EXTRA_ROWS);
   const [phase, setPhase] = useState<Phase>(
     spec.type === null
       ? { phase: "type-pick" }
@@ -271,12 +280,34 @@ export function PromptReviewFlow({
     completeExport(content, summary);
   }
 
+  /**
+   * The prompt is safely exported by this point; the handoff step runs last
+   * so nothing it does can fail the run. Its summary lines are appended to
+   * the export's before the final screen renders.
+   */
   function completeExport(content: string, summary: string[]): void {
     if (cancelledRef.current) {
       return;
     }
 
-    const fullSummary = [...approveNotesRef.current, ...summary];
+    setPhase({
+      phase: "handoff",
+      content,
+      summary: [...approveNotesRef.current, ...summary],
+      handoffInput: runRef.current?.buildHandoffInput(content) ?? null,
+    });
+  }
+
+  function completeHandoff(
+    content: string,
+    summary: string[],
+    handoffSummary: string[],
+  ): void {
+    if (cancelledRef.current) {
+      return;
+    }
+
+    const fullSummary = [...summary, ...handoffSummary];
 
     setPhase({ phase: "done", content, summary: fullSummary });
     finish({ status: "approved", content, summary: fullSummary });
@@ -386,11 +417,15 @@ export function PromptReviewFlow({
     return (
       <Box flexDirection="column">
         <Text color={theme.accent}>Generated agent prompt</Text>
-        <TailPanel
-          hiddenHint=" — pick “View full” to scroll it all"
-          maxRows={reviewRows}
-          text={phase.content}
-        />
+        {reviewRows !== null ? (
+          <TailPanel
+            hiddenHint=" — pick “View full” to scroll it all"
+            maxRows={reviewRows}
+            text={phase.content}
+          />
+        ) : (
+          <Text dimColor>Prompt ready — pick “View full” to read it.</Text>
+        )}
         <SelectList
           isActive={isActive}
           key="review"
@@ -587,6 +622,21 @@ export function PromptReviewFlow({
 
   if (phase.phase === "exporting") {
     return <Spinner label="Exporting..." />;
+  }
+
+  if (phase.phase === "handoff") {
+    return (
+      <HandoffReviewFlow
+        autoStart={spec.handoff}
+        flags={flags}
+        input={phase.handoffInput}
+        isActive={isActive}
+        key="handoff"
+        onDone={(handoffSummary) => {
+          completeHandoff(phase.content, phase.summary, handoffSummary);
+        }}
+      />
+    );
   }
 
   return (

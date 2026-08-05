@@ -68,7 +68,26 @@ describe("parseCommand", () => {
   it("parses prompt with everything optional", () => {
     expect(parseCommand(["prompt"])).toMatchObject({
       kind: "run",
-      command: { name: "prompt", type: null, description: null, out: null },
+      command: {
+        name: "prompt",
+        type: null,
+        description: null,
+        out: null,
+        handoff: false,
+      },
+    });
+  });
+
+  it("parses prompt --handoff without swallowing the description", () => {
+    expect(
+      parseCommand(["prompt", "--handoff", "add", "retry", "logic"]),
+    ).toMatchObject({
+      kind: "run",
+      command: {
+        name: "prompt",
+        handoff: true,
+        description: "add retry logic",
+      },
     });
   });
 
@@ -92,6 +111,7 @@ describe("parseCommand", () => {
         type: "bugfix",
         description: "crash on empty upload",
         out: "PROMPT.md",
+        handoff: false,
       },
     });
   });

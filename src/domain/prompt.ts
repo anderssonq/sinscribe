@@ -10,13 +10,19 @@ import {
 } from "../git/repo.js";
 import { extractTicketId } from "../git/ticket.js";
 import type { RunCallbacks } from "../llm/events.js";
-import { runSingleShot } from "../llm/single-shot.js";
+import { runSingleShot, stripMarkdownFence } from "../llm/single-shot.js";
 import {
   getSessionPath,
   loadSession,
   type BranchSession,
 } from "../session/store.js";
 import { CliError } from "./errors.js";
+import { createHandoffRun, type HandoffInput } from "./handoff.js";
+import {
+  HANDOFF_FILENAME,
+  loadHandoff,
+  type ParsedHandoff,
+} from "./handoff-export.js";
 import { PROMPT_EXPORT_FILENAME } from "./prompt-export.js";
 import {
   createPromptSystemPrompt,
@@ -64,13 +70,18 @@ type PromptContext = {
   /** name-status + stat tail vs the base; null when no base or no changes. */
   changedFiles: string | null;
   rulesSummary: RulesSummary;
+  /** HANDOFF.md at the repo root, carrying state from earlier sessions. */
+  handoff: ParsedHandoff | null;
 };
 
 async function gatherPromptContext(cwd: string): Promise<PromptContext> {
   await ensureGitRepo(cwd);
 
   const repoRoot = await getRepoRoot(cwd);
-  const rulesSummary = await loadRules(repoRoot);
+  const [rulesSummary, handoff] = await Promise.all([
+    loadRules(repoRoot),
+    loadHandoff(repoRoot),
+  ]);
   const rawBranch = await getCurrentBranch(cwd);
   const branch = rawBranch ?? "(detached HEAD)";
   const session =
@@ -90,6 +101,7 @@ async function gatherPromptContext(cwd: string): Promise<PromptContext> {
       log: await getRecentCommits(cwd, 10),
       changedFiles: null,
       rulesSummary,
+      handoff,
     };
   }
 
@@ -110,6 +122,7 @@ async function gatherPromptContext(cwd: string): Promise<PromptContext> {
     log,
     changedFiles: diff.isEmpty ? null : `${diff.nameStatus}\n${statTail}`,
     rulesSummary,
+    handoff,
   };
 }
 
@@ -134,6 +147,31 @@ export function resolvePromptDescription(
   return context.requirements
     ? `${context.feature}\n\nRequirements:\n${context.requirements}`
     : context.feature;
+}
+
+/**
+ * The handoff is a snapshot of where the branch stands, written at the end of
+ * an earlier session. One written on a different branch is still useful
+ * background, so it is labeled rather than dropped — the model can then weigh
+ * it instead of taking it for the current state.
+ */
+function describeHandoff(
+  handoff: ParsedHandoff | null,
+  branch: string,
+): string | null {
+  if (handoff === null) {
+    return null;
+  }
+
+  const isOtherBranch = handoff.branch !== null && handoff.branch !== branch;
+
+  return [
+    "",
+    isOtherBranch
+      ? `Session handoff from ${HANDOFF_FILENAME} (written on branch ${handoff.branch}, not this one — background only; do not assume it describes the current branch):`
+      : `Session handoff from ${HANDOFF_FILENAME} (state carried over from earlier sessions on this branch):`,
+    handoff.body,
+  ].join("\n");
 }
 
 function buildPromptUserPrompt(
@@ -162,6 +200,7 @@ function buildPromptUserPrompt(
           .filter((line) => line !== null)
           .join("\n")
       : null,
+    describeHandoff(context.handoff, context.branch),
     "",
     "Commits already on this branch (background, not the task):",
     context.log || "(none yet)",
@@ -197,17 +236,6 @@ function buildPromptUserPrompt(
     .join("\n");
 }
 
-/**
- * Defensively unwraps a whole-document ```/```markdown fence — the system
- * prompt forbids one, but models occasionally add it anyway.
- */
-export function stripMarkdownFence(text: string): string {
-  const trimmed = text.trim();
-  const match = /^```[a-z]*\n([\s\S]*?)\n?```$/u.exec(trimmed);
-
-  return match ? match[1] : trimmed;
-}
-
 export type PromptRunMeta = {
   kind: PromptKind;
   branch: string;
@@ -226,6 +254,12 @@ export type PromptRun = {
   generate(feedback: string | null, callbacks?: RunCallbacks): Promise<string>;
   /** Persists the approved candidate to --out when set. No session save. */
   approve(): Promise<{ outPath: string | null }>;
+  /**
+   * Hands the already-gathered git/session context to a handoff run, so
+   * writing HANDOFF.md never re-shells git. Null outside a repo — there is
+   * nowhere to write the file.
+   */
+  buildHandoffInput(agentPrompt: string): HandoffInput | null;
 };
 
 /**
@@ -284,6 +318,22 @@ export async function createPromptRun(
     return content;
   };
 
+  const buildHandoffInput = (agentPrompt: string): HandoffInput | null =>
+    context.repoRoot === null
+      ? null
+      : {
+          repoRoot: context.repoRoot,
+          branch: context.branch,
+          ticket: context.ticket,
+          baseRef: context.baseRef,
+          sessionContext: context.session?.context ?? null,
+          log: context.log,
+          changedFiles: context.changedFiles,
+          agentPrompt,
+          previousHandoff: context.handoff,
+          rules: context.rulesSummary.combined,
+        };
+
   const approve = async (): Promise<{ outPath: string | null }> => {
     if (lastGenerated === null) {
       throw new Error("approve() called before a successful generate().");
@@ -307,6 +357,7 @@ export async function createPromptRun(
     },
     generate,
     approve,
+    buildHandoffInput,
   };
 }
 
@@ -344,6 +395,7 @@ export async function dryRunPrompt(
     `Ticket:      ${context.ticket ?? "(none detected)"}`,
     `Session:     ${sessionLine}`,
     `Rules:       ${describeRulesForDryRun(context.rulesSummary)}`,
+    `Handoff:     ${describeHandoffForDryRun(context, spec)}`,
     `Description: ${descriptionLine}`,
     `Export:      ${spec.out ?? `${PROMPT_EXPORT_FILENAME} and/or clipboard, offered after approval`}`,
     "",
@@ -352,6 +404,34 @@ export async function dryRunPrompt(
     getPromptSectionSkeleton(kind),
     "---",
   ].join("\n");
+}
+
+/**
+ * One-line dry-run summary: what would be read back in, and what would be
+ * written afterwards. --handoff skips the question, so the line must say so
+ * rather than promising a prompt the run will never show.
+ */
+function describeHandoffForDryRun(
+  context: PromptContext,
+  spec: PromptSpec,
+): string {
+  if (context.handoff === null) {
+    return spec.handoff
+      ? `(no ${HANDOFF_FILENAME} yet — one would be written)`
+      : `(no ${HANDOFF_FILENAME} yet — offered after approval)`;
+  }
+
+  const origin =
+    context.handoff.branch === null
+      ? "no branch recorded"
+      : context.handoff.branch === context.branch
+        ? `branch ${context.handoff.branch}`
+        : `branch ${context.handoff.branch} — labeled as another branch's`;
+  const action = spec.handoff
+    ? "would be updated"
+    : "update offered after approval";
+
+  return `${HANDOFF_FILENAME} (${context.handoff.body.length} chars, ${origin}) — ${action}`;
 }
 
 function previewText(text: string): string {
@@ -369,6 +449,23 @@ export async function runPrompt(
   const run = await createPromptRun(spec, flags, cwd);
   const content = await run.generate(null, callbacks);
   const { outPath } = await run.approve();
+  const notes: string[] = [];
 
-  return outPath ? `Wrote agent prompt to ${outPath}` : content;
+  // Print/non-TTY mode cannot ask, so --handoff is the only way to get one.
+  if (spec.handoff) {
+    const handoffInput = run.buildHandoffInput(content);
+
+    if (handoffInput === null) {
+      notes.push(`Skipped ${HANDOFF_FILENAME}: no repository root found.`);
+    } else {
+      const handoffRun = createHandoffRun(handoffInput, flags);
+
+      await handoffRun.generate(null, callbacks);
+      notes.push(`Saved ${await handoffRun.save()}`);
+    }
+  }
+
+  const body = outPath ? `Wrote agent prompt to ${outPath}` : content;
+
+  return notes.length > 0 ? [body, "", ...notes].join("\n") : body;
 }

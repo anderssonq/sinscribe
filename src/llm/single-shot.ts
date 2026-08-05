@@ -118,6 +118,17 @@ export async function runSingleShot(
 }
 
 /**
+ * Defensively unwraps a whole-document ```/```markdown fence — the markdown
+ * system prompts forbid one, but models occasionally add it anyway.
+ */
+export function stripMarkdownFence(text: string): string {
+  const trimmed = text.trim();
+  const match = /^```[a-z]*\n([\s\S]*?)\n?```$/u.exec(trimmed);
+
+  return match ? match[1] : trimmed;
+}
+
+/**
  * Extracts a JSON object from model output that may be wrapped in prose or a
  * ```json fence. Throws with the raw output attached when nothing parses.
  */
