@@ -15,7 +15,8 @@ import { TailPanel } from "./panel.js";
 import {
   fileExists,
   isWarningLine,
-  useReviewVisibleLines,
+  useReviewLogRows,
+  useReviewPreviewRows,
 } from "./review-shared.js";
 import { appendEvent, RunLog, type LogItem } from "./run-view.js";
 import { getErrorMessage, isDebugMode } from "./shared.js";
@@ -38,8 +39,8 @@ type Phase =
 /**
  * Rows this flow renders around the tail-clamped document on the final
  * screen: the heading, panel borders, the hidden-count note, and the
- * summary lines. Passed to useReviewVisibleLines so the clamp adapts to
- * terminal height.
+ * summary lines. Passed to useReviewPreviewRows so the clamp adapts to
+ * terminal height, and the panel is dropped entirely when there is no room.
  */
 const DONE_EXTRA_ROWS = 8;
 
@@ -59,7 +60,8 @@ export function DocsReviewFlow({
   isActive,
   onDone,
 }: DocsReviewFlowProps) {
-  const doneRows = useReviewVisibleLines(DONE_EXTRA_ROWS);
+  const doneRows = useReviewPreviewRows(DONE_EXTRA_ROWS);
+  const logRows = useReviewLogRows(DONE_EXTRA_ROWS);
   const [phase, setPhase] = useState<Phase>({ phase: "generating" });
   const [log, setLog] = useState<LogItem[]>([]);
   const cancelledRef = useRef(false);
@@ -218,7 +220,7 @@ export function DocsReviewFlow({
         {/* Bounded: the log grows by a row per streamed chunk, and a frame
             that reaches the terminal's height makes Ink clear and repaint the
             whole screen for every chunk after that. */}
-        <RunLog log={log} maxRows={doneRows} waiting />
+        <RunLog log={log} maxRows={logRows} waiting />
       </Box>
     );
   }
@@ -342,11 +344,15 @@ export function DocsReviewFlow({
   return (
     <Box flexDirection="column">
       <Text color={theme.accent}>Project documentation</Text>
-      <TailPanel
-        hiddenHint=" (the full document is printed after exiting)"
-        maxRows={doneRows}
-        text={phase.content}
-      />
+      {doneRows !== null ? (
+        <TailPanel
+          hiddenHint=" (the full document is printed after exiting)"
+          maxRows={doneRows}
+          text={phase.content}
+        />
+      ) : (
+        <Text dimColor>The full document is printed after exiting.</Text>
+      )}
       {phase.summary.map((line, index) =>
         isWarningLine(line) ? (
           <Text color={theme.accent} key={index}>

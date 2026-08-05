@@ -14,7 +14,7 @@ import { Panel, TailPanel } from "./panel.js";
 import {
   fileExists,
   isWarningLine,
-  useReviewVisibleLines,
+  useReviewPreviewRows,
 } from "./review-shared.js";
 import { appendEvent, RunLog, type LogItem } from "./run-view.js";
 import { getErrorMessage, isDebugMode } from "./shared.js";
@@ -50,7 +50,7 @@ type Phase =
  * Rows this flow renders around the tail-clamped description during review:
  * the heading (1), the panel's borders and hidden-count note (3), and the
  * select list (10 — its title, two borders, two scroll indicators, four items
- * and a footer). Passed to useReviewVisibleLines so the clamp adapts to
+ * and a footer). Passed to useReviewPreviewRows so the clamp adapts to
  * terminal height.
  */
 const REVIEW_EXTRA_ROWS = 14;
@@ -74,7 +74,7 @@ export function PrReviewFlow({
   isActive,
   onDone,
 }: PrReviewFlowProps) {
-  const reviewRows = useReviewVisibleLines(REVIEW_EXTRA_ROWS);
+  const reviewRows = useReviewPreviewRows(REVIEW_EXTRA_ROWS);
   const [phase, setPhase] = useState<Phase>({
     phase: "generating",
     feedback: null,
@@ -293,11 +293,15 @@ export function PrReviewFlow({
     return (
       <Box flexDirection="column">
         <Text color={theme.accent}>Generated PR description</Text>
-        <TailPanel
-          hiddenHint=" — pick “View full” to scroll it all"
-          maxRows={reviewRows}
-          text={phase.description}
-        />
+        {reviewRows !== null ? (
+          <TailPanel
+            hiddenHint=" — pick “View full” to scroll it all"
+            maxRows={reviewRows}
+            text={phase.description}
+          />
+        ) : (
+          <Text dimColor>Description ready — pick “View full” to read it.</Text>
+        )}
         <SelectList
           isActive={isActive}
           key="review"

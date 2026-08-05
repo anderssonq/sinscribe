@@ -3,6 +3,7 @@ import {
   appendRules,
   createBranchSystemPrompt,
   createDocsSystemPrompt,
+  createHandoffSystemPrompt,
   createPromptSystemPrompt,
   createPrSystemPrompt,
 } from "../src/domain/prompts.js";
@@ -211,6 +212,51 @@ describe("createDocsSystemPrompt", () => {
   it("appends author rules after the base prompt", () => {
     expect(createDocsSystemPrompt("keep diagrams simple")).toContain(
       "keep diagrams simple",
+    );
+  });
+});
+
+describe("createHandoffSystemPrompt", () => {
+  it("demands every section and forbids a title above them", () => {
+    const prompt = createHandoffSystemPrompt({}, null);
+
+    for (const section of [
+      "## Where things stand",
+      "## What was done this session",
+      "## Key decisions",
+      "## Open questions",
+      "## Next steps",
+      "## Known issues / blockers",
+    ]) {
+      expect(prompt).toContain(section);
+    }
+
+    expect(prompt).toContain('Start at "## Where things stand"');
+    expect(prompt).toContain("snapshot, not a changelog");
+    // The agent prompt in the input is a plan; reporting it as done would
+    // make every handoff claim the work is finished.
+    expect(prompt).toContain("the plan, not a completed result");
+    expect(prompt).toContain("no surrounding code fence");
+  });
+
+  it("only asks for an update or feedback pass when told to", () => {
+    const fresh = createHandoffSystemPrompt({}, null);
+
+    expect(fresh).not.toContain("UPDATE it");
+    expect(fresh).not.toContain("gave feedback");
+
+    const revising = createHandoffSystemPrompt(
+      { update: true, feedback: true },
+      null,
+    );
+
+    expect(revising).toContain("UPDATE it");
+    expect(revising).toContain("gave feedback");
+  });
+
+  it("appends author rules after the base prompt", () => {
+    expect(createHandoffSystemPrompt({}, "write in Spanish")).toContain(
+      "write in Spanish",
     );
   });
 });

@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CommandSpec, GlobalFlags } from "../src/commands.js";
@@ -7,8 +7,12 @@ import {
   dryRunPrompt,
   inferPromptKind,
   runPrompt,
-  stripMarkdownFence,
 } from "../src/domain/prompt.js";
+import {
+  buildHandoffMarkdown,
+  getHandoffPath,
+  loadHandoff,
+} from "../src/domain/handoff-export.js";
 import { saveSession } from "../src/session/store.js";
 import { git, initRepo, makeTempDir, removeDir } from "./git-fixture.js";
 
@@ -39,6 +43,7 @@ function makeSpec(overrides: Partial<PromptSpec> = {}): PromptSpec {
     type: "feature",
     description: "add retry logic to the uploader",
     out: null,
+    handoff: false,
     ...overrides,
   };
 }
@@ -63,6 +68,19 @@ async function saveLoginContext(repo: string): Promise<void> {
     createdAt: now,
     updatedAt: now,
   });
+}
+
+async function writeHandoff(repoRoot: string, branch: string): Promise<void> {
+  await writeFile(
+    getHandoffPath(repoRoot),
+    buildHandoffMarkdown({
+      projectName: "fixture",
+      branch,
+      ticket: null,
+      body: "## Where things stand\n- Backoff is still unbounded.",
+    }),
+    "utf8",
+  );
 }
 
 let repo: string;
@@ -108,13 +126,6 @@ describe("inferPromptKind", () => {
     ].join("\n");
 
     expect(inferPromptKind(buried)).toBe("bugfix");
-  });
-});
-
-describe("stripMarkdownFence", () => {
-  it("unwraps one whole-document fence and leaves plain text alone", () => {
-    expect(stripMarkdownFence(`\`\`\`markdown\n${DOC}\n\`\`\``)).toBe(DOC);
-    expect(stripMarkdownFence(`\n${DOC}\n`)).toBe(DOC);
   });
 });
 
@@ -243,12 +254,106 @@ describe("createPromptRun", () => {
   });
 });
 
+describe("HANDOFF.md as context", () => {
+  it("threads an existing handoff into the user prompt", async () => {
+    await writeHandoff(repo, "feature/login");
+    runSingleShotMock.mockResolvedValue(modelReply(DOC));
+
+    const run = await createPromptRun(makeSpec(), FLAGS, repo);
+
+    await run.generate(null);
+
+    const [, userPrompt] = runSingleShotMock.mock.calls[0] as [string, string];
+
+    expect(userPrompt).toContain(
+      "Session handoff from HANDOFF.md (state carried over from earlier sessions on this branch):",
+    );
+    expect(userPrompt).toContain("- Backoff is still unbounded.");
+  });
+
+  it("labels a handoff written on another branch instead of dropping it", async () => {
+    await writeHandoff(repo, "feature/other");
+    runSingleShotMock.mockResolvedValue(modelReply(DOC));
+
+    const run = await createPromptRun(makeSpec(), FLAGS, repo);
+
+    await run.generate(null);
+
+    const [, userPrompt] = runSingleShotMock.mock.calls[0] as [string, string];
+
+    expect(userPrompt).toContain(
+      "written on branch feature/other, not this one",
+    );
+    expect(userPrompt).toContain("- Backoff is still unbounded.");
+  });
+
+  it("says nothing about a handoff when the file does not exist", async () => {
+    runSingleShotMock.mockResolvedValue(modelReply(DOC));
+
+    const run = await createPromptRun(makeSpec(), FLAGS, repo);
+
+    await run.generate(null);
+
+    const [, userPrompt] = runSingleShotMock.mock.calls[0] as [string, string];
+
+    expect(userPrompt).not.toContain("Session handoff");
+  });
+
+  it("hands the gathered context to the handoff run", async () => {
+    await saveLoginContext(repo);
+    await writeHandoff(repo, "feature/login");
+    runSingleShotMock.mockResolvedValue(modelReply(DOC));
+
+    const run = await createPromptRun(makeSpec(), FLAGS, repo);
+
+    await run.generate(null);
+
+    const handoffInput = run.buildHandoffInput(DOC);
+
+    expect(handoffInput?.repoRoot).toBe(run.meta.repoRoot);
+    expect(handoffInput?.branch).toBe("feature/login");
+    expect(handoffInput?.ticket).toBe("ABC-123");
+    expect(handoffInput?.agentPrompt).toBe(DOC);
+    expect(handoffInput?.sessionContext?.feature).toBe("Login retry epic");
+    expect(handoffInput?.previousHandoff?.branch).toBe("feature/login");
+  });
+});
+
 describe("runPrompt (non-interactive parity)", () => {
   it("generates once and returns the markdown", async () => {
     runSingleShotMock.mockResolvedValue(modelReply(DOC));
 
     expect(await runPrompt(makeSpec(), FLAGS, repo)).toBe(DOC);
     expect(runSingleShotMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("leaves HANDOFF.md alone without --handoff", async () => {
+    runSingleShotMock.mockResolvedValue(modelReply(DOC));
+
+    await runPrompt(makeSpec(), FLAGS, repo);
+
+    expect(await loadHandoff(repo)).toBeNull();
+    expect(runSingleShotMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("--handoff writes the file with a second model call", async () => {
+    runSingleShotMock
+      .mockResolvedValueOnce(modelReply(DOC))
+      .mockResolvedValueOnce(
+        modelReply("## Where things stand\n- Retries are designed, not built."),
+      );
+
+    const result = await runPrompt(makeSpec({ handoff: true }), FLAGS, repo);
+
+    expect(runSingleShotMock).toHaveBeenCalledTimes(2);
+    expect(result).toContain(DOC);
+    // Not the literal temp path: getRepoRoot resolves /var to /private/var.
+    expect(result).toMatch(/^Saved .*HANDOFF\.md$/mu);
+
+    const written = await loadHandoff(repo);
+
+    expect(written?.branch).toBe("feature/login");
+    expect(written?.body).toContain("- Retries are designed, not built.");
   });
 
   it("writes --out and returns the confirmation string", async () => {
@@ -276,6 +381,41 @@ describe("dryRunPrompt", () => {
     expect(scaffold).toContain("Branch:      feature/login");
     expect(scaffold).toContain("## Symptom");
     expect(scaffold).toContain("## Verification");
+    expect(runSingleShotMock).not.toHaveBeenCalled();
+  });
+
+  it("reports whether a handoff would be read back in", async () => {
+    expect(await dryRunPrompt(makeSpec(), repo)).toContain(
+      "Handoff:     (no HANDOFF.md yet — offered after approval)",
+    );
+
+    await writeHandoff(repo, "feature/login");
+
+    expect(await dryRunPrompt(makeSpec(), repo)).toContain(
+      "Handoff:     HANDOFF.md (",
+    );
+    expect(await dryRunPrompt(makeSpec(), repo)).toContain(
+      "branch feature/login) — update offered after approval",
+    );
+
+    await writeHandoff(repo, "feature/other");
+
+    expect(await dryRunPrompt(makeSpec(), repo)).toContain(
+      "labeled as another branch's",
+    );
+    expect(runSingleShotMock).not.toHaveBeenCalled();
+  });
+
+  it("says the handoff would be written when --handoff is passed", async () => {
+    expect(await dryRunPrompt(makeSpec({ handoff: true }), repo)).toContain(
+      "(no HANDOFF.md yet — one would be written)",
+    );
+
+    await writeHandoff(repo, "feature/login");
+
+    expect(await dryRunPrompt(makeSpec({ handoff: true }), repo)).toContain(
+      "— would be updated",
+    );
     expect(runSingleShotMock).not.toHaveBeenCalled();
   });
 });

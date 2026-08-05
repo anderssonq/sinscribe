@@ -129,6 +129,7 @@ sinscribe branch ABC-123 add retry logic to uploader   # → fix/... suggestions
 
 # Prompts & project understanding
 sinscribe prompt --type bugfix uploader crashes on empty files
+sinscribe prompt --handoff -p "add retry logic"   # also writes HANDOFF.md
 sinscribe context --format json --out context.json
 sinscribe agents --target claude --update
 
@@ -140,6 +141,36 @@ sinscribe pr --provider anthropic --api-key sk-ant-...
 Ticket IDs (`ABC-123`, `#42`) are auto-detected from the branch name for `pr`
 and from the input for `branch`. When a branch session exists, its
 feature/ticket/requirements are fed to the model as business context.
+
+### Session handoff (`HANDOFF.md`)
+
+A prompting session normally ends with the useful part — what was decided,
+what is still open — only in your head. After you approve a prompt,
+`sinscribe prompt` offers to write a **`HANDOFF.md`** at the repo root: a
+snapshot of where the branch stands, not an accumulated log.
+
+```markdown
+## Where things stand
+
+## What was done this session
+
+## Key decisions
+
+## Open questions
+
+## Next steps
+
+## Known issues / blockers
+```
+
+The next `sinscribe prompt` on that branch reads the file back and feeds it to
+the model, so a second iteration starts warm instead of re-deriving settled
+ground. A handoff written on a different branch is still passed along, but
+labeled as such rather than presented as the current state.
+
+`--handoff` writes the file without asking — the only route in `-p/--print`
+and other non-TTY runs, which cannot ask. The file is yours to commit or
+ignore; Sinscribe never adds it to `.gitignore`.
 
 ## Configuration
 

@@ -1,5 +1,6 @@
 import type { Template } from "../templates/schema.js";
 import { getLlmPlaceholderNames } from "../templates/render.js";
+import { HANDOFF_SECTIONS } from "./handoff-export.js";
 
 export const JSON_ONLY_INSTRUCTION =
   "Respond with a single JSON object and nothing else: no prose, no markdown fence.";
@@ -116,6 +117,29 @@ Rules:
 - Agent-agnostic plain markdown only: no XML tags, no tool-specific directives, no mention of any particular AI product inside the document.
 ${options.update ? "- You will receive a previously generated prompt. Revise it with the new information: keep sections that are still accurate and return the complete document (full replacement, not a patch).\n" : ""}${options.feedback ? "- The developer reviewed the previous prompt and gave feedback on it. Apply every point of the feedback; keep everything else that is still accurate.\n" : ""}- Be as short as possible while complete; every line must earn its place.
 - Respond with ONLY the markdown document: no preamble, no explanation, no trailing remark after the last section, and no surrounding code fence.`,
+    rules,
+  );
+}
+
+export function createHandoffSystemPrompt(
+  options: { update?: boolean; feedback?: boolean } = {},
+  rules: string | null,
+): string {
+  return appendRules(
+    `You are an experienced engineer writing the handoff note for a branch at the end of a working session. The reader is the next person — or the next AI coding agent — to pick this branch up cold. Produce a short markdown document that tells them the current state of the work.
+
+Emit exactly these sections, in this order (replace the parenthetical hints with real content):
+
+${HANDOFF_SECTIONS}
+
+Rules:
+- Start at "## Where things stand". Do not write a title, a date, or any heading above it — those are added for you.
+- Ground every line in the provided context (branch, ticket, business context, commits, changed files, the agent prompt for this session, and any previous handoff). Never invent files, decisions, or outcomes.
+- The agent prompt describes work that is about to be handed to a coding agent — it is the plan, not a completed result. Do not report its requirements as done.
+- This document is a snapshot, not a changelog: describe the state as it is now. Never keep a dated log of past sessions.
+- Short bullets, one fact each. A section with nothing real to say gets a single "- None." bullet rather than filler.
+- Write "Open questions" as questions and "Next steps" as ordered, concrete actions.
+${options.update ? '- You will receive the previous handoff. UPDATE it: keep what is still true, revise what changed, drop what is resolved (a resolved question moves out of "Open questions", it is not marked answered in place). Return the complete document, not a patch.\n' : ""}${options.feedback ? "- The author reviewed the previous draft and gave feedback on it. Apply every point; keep everything else that is still accurate.\n" : ""}- Respond with ONLY the markdown sections: no preamble, no explanation, no trailing remark, and no surrounding code fence.`,
     rules,
   );
 }

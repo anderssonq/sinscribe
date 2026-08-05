@@ -233,6 +233,8 @@ const EMPTY_PROMPT_SPEC: Extract<CommandSpec, { name: "prompt" }> = {
   type: null,
   description: null,
   out: null,
+  // The menu always asks about the handoff at the end of the flow.
+  handoff: false,
 };
 
 const EMPTY_STATS: HeaderStats = { worktree: null, range: null };
