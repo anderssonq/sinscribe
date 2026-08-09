@@ -13,7 +13,7 @@ import { BRAND_TAGLINE } from "./branding.js";
 import { Spinner } from "./spinner.js";
 import { visibleTail, wrapLines } from "./text-buffer.js";
 import { theme } from "./theme.js";
-import { useTerminalSize } from "./viewport.js";
+import { useViewport } from "./viewport.js";
 
 /** Git change figures shown in the header (menu view only). */
 export type HeaderStats = {
@@ -210,7 +210,7 @@ export function RunLog({
   /** Bounds the log to this many visual rows (alt-screen residue guard). */
   maxRows?: number;
 }) {
-  const { columns } = useTerminalSize();
+  const { contentColumns } = useViewport();
 
   if (log.length === 0) {
     return waiting ? (
@@ -223,12 +223,12 @@ export function RunLog({
   let windowed =
     maxRows === undefined
       ? { items: log, hiddenRows: 0 }
-      : tailWindowLog(log, columns, maxRows);
+      : tailWindowLog(log, contentColumns, maxRows);
 
   // The "… N earlier lines" indicator occupies a row of its own; when it
   // will render, re-window with one less row so the total stays in budget.
   if (maxRows !== undefined && maxRows > 1 && windowed.hiddenRows > 0) {
-    windowed = tailWindowLog(log, columns, maxRows - 1);
+    windowed = tailWindowLog(log, contentColumns, maxRows - 1);
   }
 
   return (

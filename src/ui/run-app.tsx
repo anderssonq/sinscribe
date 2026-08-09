@@ -3,6 +3,8 @@ import { Box, Text, useApp } from "ink";
 import type { CommandSpec, GlobalFlags } from "../commands.js";
 import { InitSetup, needsCredentialSetup } from "../credentials.js";
 import { executeCommand, isAgenticCommand } from "../domain/execute.js";
+import { AgentSetupFlow } from "./agent-setup.js";
+import { AppShell } from "./app-shell.js";
 import { DocsReviewFlow } from "./docs-review.js";
 import { PrReviewFlow } from "./pr-review.js";
 import { PromptReviewFlow } from "./prompt-review.js";
@@ -42,6 +44,9 @@ export function RunApp({ command, flags, onResult }: RunAppProps) {
   // docs without --out runs the interactive export flow; --out keeps the
   // plain fire-once path (the file is written by runDocs itself).
   const isDocsReview = command.name === "docs" && command.out === null;
+  // agent-setup is interactive by nature (it interviews the author); off a
+  // TTY, executeCommand's print path runs it without the questions instead.
+  const isAgentSetup = command.name === "agent-setup";
 
   useEffect(() => {
     if (
@@ -49,7 +54,8 @@ export function RunApp({ command, flags, onResult }: RunAppProps) {
       started.current ||
       isPrReview ||
       isPromptReview ||
-      isDocsReview
+      isDocsReview ||
+      isAgentSetup
     ) {
       return;
     }
@@ -86,6 +92,7 @@ export function RunApp({ command, flags, onResult }: RunAppProps) {
     isPrReview,
     isPromptReview,
     isDocsReview,
+    isAgentSetup,
   ]);
 
   if (!setupDone) {
@@ -106,7 +113,7 @@ export function RunApp({ command, flags, onResult }: RunAppProps) {
 
   if (isPrReview) {
     return (
-      <Box flexDirection="column">
+      <AppShell>
         <Header subtitle="PR description — review before approving" />
         <PrReviewFlow
           flags={flags}
@@ -117,13 +124,13 @@ export function RunApp({ command, flags, onResult }: RunAppProps) {
           }}
           spec={command}
         />
-      </Box>
+      </AppShell>
     );
   }
 
   if (isPromptReview) {
     return (
-      <Box flexDirection="column">
+      <AppShell>
         <Header subtitle="Agent prompt — review before approving" />
         <PromptReviewFlow
           flags={flags}
@@ -134,13 +141,31 @@ export function RunApp({ command, flags, onResult }: RunAppProps) {
           }}
           spec={command}
         />
-      </Box>
+      </AppShell>
+    );
+  }
+
+  if (isAgentSetup) {
+    return (
+      <AppShell>
+        <Header subtitle="Set up project agents — analyze, answer, generate" />
+        <AgentSetupFlow
+          flags={flags}
+          isActive
+          onDone={(outcome) => {
+            // No onResult re-print: RunApp is not alt-screen, and the done
+            // frame is a short summary that is never clamped away.
+            process.exitCode = outcome.status === "failed" ? 1 : 0;
+            app.exit();
+          }}
+        />
+      </AppShell>
     );
   }
 
   if (isDocsReview) {
     return (
-      <Box flexDirection="column">
+      <AppShell>
         <Header subtitle="Project documentation — export when ready" />
         <DocsReviewFlow
           flags={flags}
@@ -156,12 +181,12 @@ export function RunApp({ command, flags, onResult }: RunAppProps) {
             app.exit();
           }}
         />
-      </Box>
+      </AppShell>
     );
   }
 
   return (
-    <Box flexDirection="column">
+    <AppShell>
       <Header
         subtitle={
           result !== null || error !== null
@@ -188,6 +213,6 @@ export function RunApp({ command, flags, onResult }: RunAppProps) {
         </Box>
       ) : null}
       {error !== null ? <Text color={theme.error}>Error: {error}</Text> : null}
-    </Box>
+    </AppShell>
   );
 }

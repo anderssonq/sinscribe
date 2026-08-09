@@ -1,11 +1,14 @@
 import { describe, expect, it } from "vitest";
 import {
   appendRules,
+  createAgentPlanSystemPrompt,
+  createAgentWriteSystemPrompt,
   createBranchSystemPrompt,
   createDocsSystemPrompt,
   createHandoffSystemPrompt,
   createPromptSystemPrompt,
   createPrSystemPrompt,
+  JSON_ONLY_INSTRUCTION,
 } from "../src/domain/prompts.js";
 import { parseTemplate } from "../src/templates/schema.js";
 
@@ -258,5 +261,95 @@ describe("createHandoffSystemPrompt", () => {
     expect(createHandoffSystemPrompt({}, "write in Spanish")).toContain(
       "write in Spanish",
     );
+  });
+});
+
+describe("createAgentPlanSystemPrompt", () => {
+  it("is a read-only analysis pass returning JSON", () => {
+    const prompt = createAgentPlanSystemPrompt(null);
+
+    expect(prompt).toContain("Do not write or modify any files");
+    expect(prompt).toContain("Do not read .env files or secrets");
+    expect(prompt).toContain("analysis pass only");
+    expect(prompt).toContain(JSON_ONLY_INSTRUCTION);
+    for (const key of ['"stack"', '"roster"', '"questions"']) {
+      expect(prompt).toContain(key);
+    }
+  });
+
+  it("asks only for what the repository cannot answer", () => {
+    const prompt = createAgentPlanSystemPrompt(null);
+
+    expect(prompt).toContain("Ask nothing whose answer you could have read");
+    expect(prompt).toContain("never a surface you did not find evidence for");
+  });
+
+  it("appends author rules", () => {
+    expect(
+      createAgentPlanSystemPrompt("always propose a security agent"),
+    ).toContain("always propose a security agent");
+  });
+});
+
+describe("createAgentWriteSystemPrompt", () => {
+  const api = { id: "api", label: "API", role: "Owns the NestJS API." };
+  const web = { id: "web", label: "Web", role: "Owns the React app." };
+
+  it("whitelists exactly the files it may touch", () => {
+    const prompt = createAgentWriteSystemPrompt(
+      { create: [api, web], update: [], stack: ["NestJS"], answers: [] },
+      null,
+    );
+
+    expect(prompt).toContain("/.claude/agents/api.md");
+    expect(prompt).toContain("/.claude/agents/web.md");
+    expect(prompt).toContain("Do not create, rename, or modify any other file");
+    expect(prompt).toContain("Do not write CLAUDE.md or AGENTS.md");
+  });
+
+  it("sends existing files down the read+edit path", () => {
+    const prompt = createAgentWriteSystemPrompt(
+      { create: [web], update: [api], stack: [], answers: [] },
+      null,
+    );
+
+    expect(prompt).toContain("Create these files with write_file");
+    expect(prompt).toContain("write_file will fail on them");
+    expect(prompt).toContain("read_file first, then edit_file");
+  });
+
+  it("omits the create block entirely when there is nothing new", () => {
+    const prompt = createAgentWriteSystemPrompt(
+      { create: [], update: [api], stack: [], answers: [] },
+      null,
+    );
+
+    expect(prompt).not.toContain("Create these files with write_file");
+    expect(prompt).toContain("Update these files in place");
+  });
+
+  it("carries the author's answers in as authoritative", () => {
+    const prompt = createAgentWriteSystemPrompt(
+      {
+        create: [api],
+        update: [],
+        stack: [],
+        answers: [{ question: "Who uses it?", answer: "Internal ops team." }],
+      },
+      null,
+    );
+
+    expect(prompt).toContain("Q: Who uses it?");
+    expect(prompt).toContain("A: Internal ops team.");
+    expect(prompt).toContain("Treat the answers as authoritative");
+  });
+
+  it("appends author rules", () => {
+    expect(
+      createAgentWriteSystemPrompt(
+        { create: [api], update: [], stack: [], answers: [] },
+        "never set model: opus",
+      ),
+    ).toContain("never set model: opus");
   });
 });

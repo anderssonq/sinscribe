@@ -45,6 +45,44 @@ describe("computeViewport", () => {
   });
 });
 
+describe("computeViewport content width", () => {
+  // The cap must be inert at every width people actually use, or the change
+  // would have silently reflowed every existing terminal.
+  it.each([20, 40, 80, 100, 119, 120])(
+    "leaves %i columns uncapped and uncentered",
+    (columns) => {
+      const viewport = computeViewport(columns, 40);
+
+      expect(viewport.contentColumns).toBe(columns);
+      expect(viewport.gutter).toBe(0);
+    },
+  );
+
+  it("caps and centers a wide terminal", () => {
+    const viewport = computeViewport(200, 40);
+
+    expect(viewport.contentColumns).toBe(120);
+    expect(viewport.gutter).toBe(40);
+  });
+
+  it("never lets the content column plus its gutter overflow the terminal", () => {
+    for (const columns of [1, 20, 121, 150, 200, 301, 500]) {
+      const viewport = computeViewport(columns, 40);
+
+      expect(viewport.gutter + viewport.contentColumns).toBeLessThanOrEqual(
+        columns,
+      );
+    }
+  });
+
+  it("hides the logo on a viewport too narrow for it", () => {
+    expect(computeViewport(LOGO_WIDTH + 1, 40).logoRows).toBe(0);
+    expect(computeViewport(LOGO_WIDTH + 2, 40).logoRows).toBe(
+      LOGO_LINES.length,
+    );
+  });
+});
+
 describe("computePromptRows", () => {
   const bounds = { min: 2, max: 20 };
 

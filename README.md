@@ -91,17 +91,18 @@ The first interactive run asks for your provider API key and stores it in
 
 ## Commands
 
-| Command              | What it does                                                            |
-| -------------------- | ----------------------------------------------------------------------- |
-| `sinscribe`          | Interactive chat agent + menu over the current repo                     |
-| `sinscribe pr`       | PR/MR description from local changes vs the target branch               |
-| `sinscribe commit`   | Conventional Commit + Gitmoji message from staged changes               |
-| `sinscribe branch`   | Branch-name suggestions from a description/ticket                       |
-| `sinscribe prompt`   | Copy-ready feature/bugfix task prompt for your AI coding agent          |
-| `sinscribe context`  | Structured project-context brief (markdown or JSON)                     |
-| `sinscribe docs`     | Project documentation with mermaid diagrams                             |
-| `sinscribe agents`   | Generate/refresh `CLAUDE.md` + `AGENTS.md` from the repo                |
-| `sinscribe template` | Manage the template library (`list` / `show` / `add` / `edit` / `path`) |
+| Command                 | What it does                                                                    |
+| ----------------------- | ------------------------------------------------------------------------------- |
+| `sinscribe`             | Interactive chat agent + menu over the current repo                             |
+| `sinscribe pr`          | PR/MR description from local changes vs the target branch                       |
+| `sinscribe commit`      | Conventional Commit + Gitmoji message from staged changes                       |
+| `sinscribe branch`      | Branch-name suggestions from a description/ticket                               |
+| `sinscribe prompt`      | Copy-ready feature/bugfix task prompt for your AI coding agent                  |
+| `sinscribe context`     | Structured project-context brief (markdown or JSON)                             |
+| `sinscribe docs`        | Project documentation with mermaid diagrams                                     |
+| `sinscribe agents`      | Generate/refresh `CLAUDE.md` + `AGENTS.md` from the repo                        |
+| `sinscribe agent-setup` | Analyze the project and write specialized agent definitions to `.claude/agents` |
+| `sinscribe template`    | Manage the template library (`list` / `show` / `add` / `edit` / `path`)         |
 
 ### Common flags
 
@@ -245,7 +246,7 @@ this: it only governs auto-approval, and was verified to still let the model
 read the filesystem.) The agent config lives under `~/.sinscribe/kiro-agent/`
 and never touches your own Kiro agents.
 
-**Limitation:** agentic commands (`context`/`docs`/`agents`/`chat`) need
+**Limitation:** agentic commands (`context`/`docs`/`agents`/`agent-setup`/`chat`) need
 tool calling and exit with a clear message asking you to switch providers.
 
 ### Reliability
@@ -316,7 +317,7 @@ ID, requirements, and the **target branch** it merges into — stored in
   diff and context locally and makes one model call — the model never touches
   your repo. (Branch creation/rename is a plain git call the CLI makes after you
   pick a name; the model only suggests names.)
-- **`context` / `docs` / `agents` / chat are agentic:** a deepagents loop with
+- **`context` / `docs` / `agents` / `agent-setup` / chat are agentic:** a deepagents loop with
   read tools (and, for `agents`, write) rooted at the repository.
 - Sinscribe fails gracefully outside a git repository, never lets the agent read
   `.env` files, and keeps secrets out of all output and logs.

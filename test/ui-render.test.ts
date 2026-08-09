@@ -5,6 +5,7 @@ import { render, Text } from "ink";
 import { describe, expect, it, vi } from "vitest";
 import type { GlobalFlags } from "../src/commands.js";
 import type { HandoffInput } from "../src/domain/handoff.js";
+import { AppShell } from "../src/ui/app-shell.js";
 import { DocsReviewFlow } from "../src/ui/docs-review.js";
 import { HandoffReviewFlow } from "../src/ui/handoff-review.js";
 import { PrReviewFlow } from "../src/ui/pr-review.js";
@@ -12,6 +13,7 @@ import {
   InlinePrompt,
   MainMenu,
   MultilinePrompt,
+  MultiSelectList,
 } from "../src/ui/menu-view.js";
 import { Panel, TailPanel } from "../src/ui/panel.js";
 import { RunLog, type LogItem } from "../src/ui/run-view.js";
@@ -385,6 +387,30 @@ describe("UI at extreme terminal sizes", () => {
   });
 
   for (const [columns, rows] of menuSizes) {
+    it(`MultiSelectList windows a long roster at ${columns}x${rows}`, async () => {
+      const frames = await renderOnce(
+        createElement(MultiSelectList, {
+          isActive: true,
+          items: Array.from({ length: 40 }, (_, index) => ({
+            id: `agent-${index}`,
+            label: `Agent ${index}`,
+            hint: "a role description long enough to need truncating on a narrow box",
+          })),
+          onCancel: () => undefined,
+          onConfirm: () => undefined,
+          title: "Agents to create",
+        }),
+        columns,
+        rows,
+      );
+
+      expect(tallestFrameRows(frames)).toBeLessThanOrEqual(rows);
+      // Every item starts checked, so the count line reflects the full list.
+      expect(fullestFrame(frames)).toContain("40 of 40 selected");
+    });
+  }
+
+  for (const [columns, rows] of menuSizes) {
     it(`prompts holding a pasted block fit ${columns}x${rows}`, async () => {
       // initialValue is read on mount, so no key driving is needed here.
       const pasted = "Acceptance criteria: the counters refresh. ".repeat(60);
@@ -413,4 +439,105 @@ describe("UI at extreme terminal sizes", () => {
       }
     });
   }
+});
+
+/** Longest visible line across every frame Ink wrote. */
+function widestFrameColumn(frames: string[]): number {
+  let widest = 0;
+
+  for (const frame of frames) {
+    for (const line of frame.replace(ANSI_PATTERN, "").split("\n")) {
+      widest = Math.max(widest, line.trimEnd().length);
+    }
+  }
+
+  return widest;
+}
+
+describe("centered content column on a wide terminal", () => {
+  const paragraph = "word ".repeat(400).trim();
+
+  // AppShell is what applies the gutter, so these render through it rather
+  // than mounting the widgets bare.
+  function shell(child: Parameters<typeof render>[0]) {
+    return createElement(AppShell, null, child);
+  }
+
+  it("caps and centers content instead of stretching to 300 columns", async () => {
+    const frames = await renderOnce(
+      shell(
+        createElement(MainMenu, { isActive: true, onSelect: () => undefined }),
+      ),
+      300,
+      100,
+    );
+    const lines = fullestFrame(frames)
+      .split("\n")
+      .filter((line) => line.trim().length > 0);
+
+    // gutter 90 + contentColumns 120.
+    expect(widestFrameColumn(frames)).toBeLessThanOrEqual(210);
+    // Every content row starts past the gutter, never at the left edge.
+    for (const line of lines) {
+      expect(line.length - line.trimStart().length).toBe(90);
+    }
+  });
+
+  it("shows the wide layout's detail pane beside the action list", async () => {
+    const frames = await renderOnce(
+      shell(
+        createElement(MainMenu, {
+          isActive: true,
+          onSelect: () => undefined,
+          detail: [{ label: "Branch", value: "feat/wide-layout" }],
+        }),
+      ),
+      300,
+      100,
+    );
+    const frame = fullestFrame(frames);
+
+    expect(frame).toContain("╭─ Details ");
+    expect(frame).toContain("feat/wide-layout");
+    // The hint moved out of the list column into the pane.
+    expect(tallestFrameRows(frames)).toBeLessThanOrEqual(100);
+  });
+
+  it("keeps the narrow layout inline and flush left at 80 columns", async () => {
+    const frames = await renderOnce(
+      shell(
+        createElement(MainMenu, { isActive: true, onSelect: () => undefined }),
+      ),
+      80,
+      24,
+    );
+    const frame = fullestFrame(frames);
+
+    expect(frame).not.toContain("╭─ Details ");
+    expect(frame.split("\n")[0].startsWith(" ")).toBe(false);
+  });
+
+  it("wraps prose to the capped column, not the terminal width", async () => {
+    // The freeze hazard in reverse: the shell renders 120 columns wide, so the
+    // wrap math must agree or the row budget under-counts.
+    const frames = await renderOnce(
+      shell(createElement(TailPanel, { text: paragraph, maxRows: 6 })),
+      300,
+      100,
+    );
+
+    expect(widestFrameColumn(frames)).toBeLessThanOrEqual(210);
+    expect(tallestFrameRows(frames)).toBeLessThanOrEqual(9);
+  });
+
+  it("keeps a bounded RunLog inside a wide, short terminal", async () => {
+    const frames = await renderOnce(
+      shell(createElement(RunLog, { log: makeLog(300), maxRows: 20 })),
+      300,
+      26,
+    );
+
+    expect(tallestFrameRows(frames)).toBeLessThan(26);
+    expect(widestFrameColumn(frames)).toBeLessThanOrEqual(210);
+  });
 });

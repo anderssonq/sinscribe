@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 import { Box, Text } from "ink";
 import { visibleTail, wrapLines } from "./text-buffer.js";
 import { theme } from "./theme.js";
-import { useTerminalSize } from "./viewport.js";
+import { useViewport } from "./viewport.js";
 
 type PanelProps = {
   /** Renders a hand-drawn titled top border (the main-menu style). */
@@ -84,9 +84,9 @@ export function TailPanel({
   title,
   width,
 }: TailPanelProps) {
-  const { columns } = useTerminalSize();
+  const { contentColumns } = useViewport();
   // Two borders and two columns of padding, or the caller's fixed width.
-  const textWidth = Math.max(20, (width ?? columns) - 4);
+  const textWidth = Math.max(20, (width ?? contentColumns) - 4);
   const rows = wrapLines(text, textWidth);
   const { lines, hidden } = visibleTail(rows.join("\n"), maxRows);
 

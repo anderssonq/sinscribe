@@ -26,10 +26,10 @@ export function HelpView({
   text: string;
   onExit: () => void;
 }) {
-  const { columns, contentRows } = useViewport();
+  const { contentColumns, contentRows } = useViewport();
   const [offset, setOffset] = useState(0);
 
-  const width = Math.max(20, columns - 2);
+  const width = Math.max(20, contentColumns - 2);
   const lines = useMemo(() => wrapLines(text, width), [text, width]);
 
   const visible = Math.max(4, contentRows - HELP_EXTRA_ROWS);

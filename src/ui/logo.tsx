@@ -1,7 +1,7 @@
 import { Box, Text } from "ink";
 import { LOGO_LINES } from "./branding.js";
 import { theme } from "./theme.js";
-import { logoVisible, useTerminalSize } from "./viewport.js";
+import { useViewport } from "./viewport.js";
 
 /**
  * ASCII logo for the main menu, colored with the carbon ramp — a dark-to-
@@ -10,9 +10,11 @@ import { logoVisible, useTerminalSize } from "./viewport.js";
  * The art itself lives in branding.ts; the size math in viewport.ts.
  */
 export function Logo() {
-  const { columns, rows } = useTerminalSize();
+  // logoRows is already 0 when the viewport is too small — one decision,
+  // made where the row budget that depends on it is computed.
+  const { logoRows } = useViewport();
 
-  if (!logoVisible(columns, rows)) {
+  if (logoRows === 0) {
     return null;
   }
 

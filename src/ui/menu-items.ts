@@ -1,4 +1,5 @@
 // Pure menu-item state (no Ink) so completion/label logic is unit-testable.
+import type { ShortStat } from "../git/diff.js";
 import type { BranchSession } from "../session/store.js";
 
 export type MenuChoice =
@@ -9,6 +10,7 @@ export type MenuChoice =
   | "prompt"
   | "branch"
   | "docs"
+  | "agent-setup"
   | "rules"
   | "settings"
   | "theme"
@@ -74,6 +76,12 @@ export const MENU_ITEMS: MenuItem[] = [
     section: "DOCS",
   },
   {
+    id: "agent-setup",
+    label: "Set up project agents",
+    hint: "Analyze the project and generate specialized AI agent definitions",
+    section: "DOCS",
+  },
+  {
     id: "rules",
     label: "Project rules",
     hint: "Write rules that get added to every AI command's instructions",
@@ -100,6 +108,38 @@ export const MENU_ITEMS: MenuItem[] = [
   { id: "exit", label: "Exit", hint: "Quit Sinscribe", section: "CONFIG" },
 ];
 
+/** One `label: value` row of repository context for the wide side panel. */
+export type MenuDetail = { label: string; value: string };
+
+/**
+ * The repository context the wide layout shows beside the action list. On a
+ * narrow terminal the same facts live in the Header's single truncated line;
+ * with room to spare they get a row each instead of competing for one.
+ */
+export function buildMenuDetail(input: {
+  branch: string | null;
+  targetBase: string | null;
+  hasContext: boolean;
+  stat: ShortStat | null;
+}): MenuDetail[] {
+  const detail: MenuDetail[] = [
+    { label: "Branch", value: input.branch ?? "(not a git repository)" },
+    { label: "Target", value: input.targetBase ?? "(auto-detect)" },
+    { label: "Context", value: input.hasContext ? "saved" : "not captured" },
+  ];
+
+  if (input.stat) {
+    const { insertions, deletions, files } = input.stat;
+
+    detail.push({
+      label: "Changes",
+      value: `+${insertions} -${deletions} (${files} ${files === 1 ? "file" : "files"})`,
+    });
+  }
+
+  return detail;
+}
+
 /**
  * True when the current branch differs from the target base — covering both
  * "a branch was just created" and "the user was already on a feature branch".
@@ -125,6 +165,8 @@ export function buildMenuItems(input: {
   session: BranchSession | null;
   branch: string | null;
   targetBase: string | null;
+  /** Agent definitions already in .claude/agents (0 when none or unknown). */
+  agentFiles?: number;
 }): MenuItem[] {
   return MENU_ITEMS.map((item) => {
     switch (item.id) {
@@ -150,6 +192,15 @@ export function buildMenuItems(input: {
               done: true,
               label: "Rename branch",
               hint: "Pick a new name for the current branch (git branch -m)",
+            }
+          : item;
+      case "agent-setup":
+        return input.agentFiles
+          ? {
+              ...item,
+              done: true,
+              label: "Refresh project agents",
+              hint: `${input.agentFiles} definition${input.agentFiles === 1 ? "" : "s"} exist — re-analyze and update or extend them`,
             }
           : item;
       default:
