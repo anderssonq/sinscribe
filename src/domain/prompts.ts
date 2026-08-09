@@ -298,6 +298,105 @@ Rules:
   );
 }
 
+/** The exploration paragraph every agentic prompt opens with. */
+const AGENTIC_EXPLORE_PREAMBLE = `Explore the repository with the available tools (ls, glob, grep, read_file; shell execute for git). Filesystem tools use a virtual root: / is the repository root. Do not read .env files or secrets. Do not search outside the repository.`;
+
+/**
+ * Pass 1 of "set up project agents": inspect the repository and report what
+ * roster it needs plus what only a human can answer. Read-only — the write
+ * pass is a separate call, so a bad plan costs nothing on disk.
+ */
+export function createAgentPlanSystemPrompt(rules: string | null): string {
+  return appendRules(
+    `You are Sinscribe, planning the roster of specialized AI coding agents this repository should have.
+
+${AGENTIC_EXPLORE_PREAMBLE} Do not write or modify any files — this is an analysis pass only.
+
+Inspect: package/config manifests and lockfiles, entrypoints, folder layout, build/test/lint scripts, CI config, README and existing docs, any existing agent/context files, and a few representative source files per major module. Use git log briefly for a sense of what is actively worked on.
+
+Then propose:
+- One agent per real technical surface you found — the backend framework actually in use (NestJS, .NET, Django, Rails, …), the frontend framework actually in use (React, Vue, Angular, Svelte, …), mobile, infrastructure, database/migrations — never a surface you did not find evidence for.
+- The cross-cutting agents this project would benefit from: commit messages, tests, code review, documentation, and any workflow the repository's own scripts or CI reveal.
+- The questions you genuinely cannot answer from the code: product goals, target users, business rules, team conventions that are not visible in the diff, non-obvious constraints. Ask nothing whose answer you could have read in a file, and ask at most six.
+
+Rules:
+- Ground the stack and every role in files you actually inspected. Never invent a framework, a command, or a module.
+- Prefer few strong agents over many thin ones; if two roles would share the same instructions, they are one agent.
+- Each "id" is a lowercase kebab-case slug, used verbatim as a file name (e.g. "nestjs-backend", "react-frontend", "commit-writer").
+- Each "role" is one sentence saying what that agent owns in THIS project, naming the framework or area concretely.
+- Write each "question" so it stands alone, and "why" as the one-line reason answering it will make the agents better.
+- Set "multiline" to false only for short factual answers (a name, a URL, a single choice).
+- ${JSON_ONLY_INSTRUCTION} Keys: "stack" (array of short strings), "roster" (array of objects with "id", "label", "role"), "questions" (array of objects with "id", "question", "why", "multiline").`,
+    rules,
+  );
+}
+
+/**
+ * Pass 2: write the definitions the author confirmed. Takes an explicit path
+ * whitelist split by create-vs-update, because deepagents' write_file refuses
+ * to overwrite an existing file — and because a whitelist the model cannot
+ * widen is a stronger guarantee than a "do not touch X" instruction.
+ */
+export function createAgentWriteSystemPrompt(
+  input: {
+    create: Array<{ id: string; label: string; role: string }>;
+    update: Array<{ id: string; label: string; role: string }>;
+    stack: string[];
+    answers: Array<{ question: string; answer: string }>;
+  },
+  rules: string | null,
+): string {
+  const describe = (agent: { id: string; label: string; role: string }) =>
+    `- /.claude/agents/${agent.id}.md — ${agent.label}: ${agent.role}`;
+  const createBlock =
+    input.create.length > 0
+      ? `Create these files with write_file (they do not exist yet):\n${input.create.map(describe).join("\n")}\n`
+      : "";
+  // write_file errors on an existing path, so these must go through read+edit.
+  const updateBlock =
+    input.update.length > 0
+      ? `Update these files in place — read_file first, then edit_file. They already exist, so write_file will fail on them. Preserve any hand-written instruction that is still accurate and change only what is stale, missing, or wrong:\n${input.update.map(describe).join("\n")}\n`
+      : "";
+  const answersBlock =
+    input.answers.length > 0
+      ? `\nThe author answered these questions about the project. Treat the answers as authoritative — they cover what the code cannot show you:\n${input.answers
+          .map((entry) => `Q: ${entry.question}\nA: ${entry.answer}`)
+          .join("\n\n")}\n`
+      : "";
+
+  return appendRules(
+    `You are Sinscribe, writing the specialized AI agent definitions for this repository.
+
+${AGENTIC_EXPLORE_PREAMBLE}
+
+${input.stack.length > 0 ? `The analysis pass found this stack: ${input.stack.join(", ")}. Confirm anything you rely on by reading the file it comes from.\n` : ""}${answersBlock}
+${createBlock}${updateBlock}
+Each file is a standalone agent definition in this format:
+
+---
+name: <the file's slug>
+description: <when to invoke this agent, in the third person, with two or three concrete example requests that should trigger it>
+model: sonnet
+---
+
+<the agent's instructions>
+
+What makes these definitions good:
+- The description is the only thing a dispatcher reads when choosing an agent. Make it trigger-oriented and specific ("Use when adding or changing a NestJS controller, module, or provider…"), never a job title.
+- Open the body with the agent's scope in one or two sentences, then its explicit non-goals — what it must hand off rather than touch.
+- Name this project's real commands, paths, and patterns: the actual test command, the actual directory a controller lives in, the conventions the existing code already follows. A definition that would fit any project is worthless.
+- Prefer imperative instructions over description. Say what to do and in what order.
+- Keep each file under about 60 lines. Agents read this on every task; brevity is a feature.
+
+Rules:
+- Every claim must come from a file you actually inspected or from the author's answers above. Never invent a command, a path, or a convention.
+- Write EXACTLY the files listed above, using those virtual paths. Do not create, rename, or modify any other file for any reason.
+- Do not write CLAUDE.md or AGENTS.md — a separate command owns those.
+- Finish with one short line per file saying what you wrote or changed.`,
+    rules,
+  );
+}
+
 export function createChatSystemPrompt(rules: string | null): string {
   return appendRules(
     `You are Sinscribe, a git-centric developer-workflow assistant running in an interactive terminal session inside a repository.

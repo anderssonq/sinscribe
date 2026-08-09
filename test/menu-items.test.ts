@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { BranchSession } from "../src/session/store.js";
 import {
+  buildMenuDetail,
   buildMenuItems,
   isOnWorkBranch,
   MENU_ITEMS,
@@ -153,5 +154,83 @@ describe("buildMenuItems", () => {
 
     expect(item?.label).toBe("Generate documentation");
     expect(item?.done).toBeUndefined();
+  });
+
+  it("offers agent setup, then relabels to refresh once definitions exist", () => {
+    const base = { session: null, branch: null, targetBase: null };
+    const fresh = buildMenuItems(base).find(
+      (entry) => entry.id === "agent-setup",
+    );
+
+    expect(fresh?.label).toBe("Set up project agents");
+    expect(fresh?.done).toBeUndefined();
+
+    const existing = buildMenuItems({ ...base, agentFiles: 3 }).find(
+      (entry) => entry.id === "agent-setup",
+    );
+
+    expect(existing?.label).toBe("Refresh project agents");
+    expect(existing?.done).toBe(true);
+    expect(existing?.hint).toContain("3 definitions");
+
+    const one = buildMenuItems({ ...base, agentFiles: 1 }).find(
+      (entry) => entry.id === "agent-setup",
+    );
+
+    expect(one?.hint).toContain("1 definition exist");
+  });
+
+  it("groups agent setup under DOCS, right after documentation", () => {
+    const ids = MENU_ITEMS.map((item) => item.id);
+    const item = MENU_ITEMS.find((entry) => entry.id === "agent-setup");
+
+    expect(item?.section).toBe("DOCS");
+    expect(ids.indexOf("agent-setup")).toBe(ids.indexOf("docs") + 1);
+  });
+});
+
+describe("buildMenuDetail", () => {
+  it("lists the repository context the wide layout shows", () => {
+    const detail = buildMenuDetail({
+      branch: "feature/x",
+      targetBase: "origin/main",
+      hasContext: true,
+      stat: { insertions: 12, deletions: 3, files: 2 },
+    });
+
+    expect(detail.map((row) => row.label)).toEqual([
+      "Branch",
+      "Target",
+      "Context",
+      "Changes",
+    ]);
+    expect(detail[0].value).toBe("feature/x");
+    expect(detail[2].value).toBe("saved");
+    expect(detail[3].value).toBe("+12 -3 (2 files)");
+  });
+
+  it("falls back to readable placeholders outside a repository", () => {
+    const detail = buildMenuDetail({
+      branch: null,
+      targetBase: null,
+      hasContext: false,
+      stat: null,
+    });
+
+    expect(detail).toHaveLength(3);
+    expect(detail[0].value).toBe("(not a git repository)");
+    expect(detail[1].value).toBe("(auto-detect)");
+    expect(detail[2].value).toBe("not captured");
+  });
+
+  it("singularizes a one-file change", () => {
+    const detail = buildMenuDetail({
+      branch: "x",
+      targetBase: "main",
+      hasContext: false,
+      stat: { insertions: 1, deletions: 0, files: 1 },
+    });
+
+    expect(detail[3].value).toBe("+1 -0 (1 file)");
   });
 });

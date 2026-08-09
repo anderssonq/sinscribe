@@ -41,6 +41,7 @@ export type CommandSpec =
       target: "claude" | "agents" | "both";
       update: boolean;
     }
+  | { name: "agent-setup" }
   | {
       name: "template";
       action: "list" | "show" | "add" | "edit" | "path";
@@ -62,6 +63,7 @@ const SUBCOMMANDS = [
   "context",
   "docs",
   "agents",
+  "agent-setup",
   "template",
 ] as const;
 
@@ -240,6 +242,8 @@ function parseSubcommand(
       return parseDocs(args);
     case "agents":
       return parseAgents(args);
+    case "agent-setup":
+      return parseAgentSetup(args);
     case "template":
       return parseTemplate(args);
   }
@@ -546,6 +550,18 @@ function parseAgents(
   return { name: "agents", target, update };
 }
 
+function parseAgentSetup(
+  args: string[],
+): CommandSpec | Extract<CliCommand, { kind: "error" }> {
+  // No options yet: the roster and the answers come from the interactive
+  // flow, and everything else is discovered from the repository.
+  if (args.length > 0) {
+    return error(`Unknown option for agent-setup: ${args[0]}`);
+  }
+
+  return { name: "agent-setup" };
+}
+
 function parseTemplate(
   args: string[],
 ): CommandSpec | Extract<CliCommand, { kind: "error" }> {
@@ -638,6 +654,9 @@ Usage
   sinscribe context [options]              Extract a structured project-context brief
   sinscribe docs [options]                 Generate project documentation (markdown + mermaid diagrams)
   sinscribe agents [options]               Scaffold/update CLAUDE.md and AGENTS.md
+  sinscribe agent-setup                    Analyze the project and generate specialized agent definitions
+                                           in .claude/agents (interactive runs ask what the code cannot
+                                           tell them first; -p/--print skips the questions)
   sinscribe template <action> [name]       Manage the template library
 
 Command options
@@ -660,6 +679,7 @@ Command options
                                 (interactive runs offer PROJECT_DOCUMENTATION.md / clipboard export)
   agents    --target <t>        claude|agents|both (default: both)
             --update            Surgically refresh existing files
+  agent-setup                   (no options)
   template  list                List available templates
             show <name>         Print a template
             add <name> [--from <file>]  Add a user template
@@ -686,6 +706,7 @@ Examples
   sinscribe context --out CONTEXT.md
   sinscribe docs
   sinscribe agents --target claude
+  sinscribe agent-setup
   sinscribe template list
   sinscribe -p "Summarize what sinscribe can do"
   sinscribe pr --provider anthropic --api-key sk-ant-...`;

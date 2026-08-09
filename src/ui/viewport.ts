@@ -27,29 +27,58 @@ const LOGO_MIN_ROWS = 30;
  */
 const HEADER_CHROME_ROWS = 8;
 
-/** True when the terminal is tall and wide enough to show the ASCII logo. */
+/**
+ * Widest the content column ever gets. Past this the shell centers the column
+ * instead of stretching: a full-bleed 200-column terminal wraps prose at ~195
+ * characters, well past a readable measure, and leaves the 62-column menu
+ * marooned against the left edge. Below this the cap is inert — contentColumns
+ * is the terminal width and the gutter is 0, so narrow and standard terminals
+ * render exactly as they did before.
+ */
+const MAX_CONTENT_COLUMNS = 120;
+
+/**
+ * Content width at which views may switch to a side-by-side layout. Matches
+ * the breakpoint the PR-template picker already used before this was shared.
+ */
+export const WIDE_LAYOUT_COLUMNS = 100;
+
+/** True when the viewport is tall and wide enough to show the ASCII logo. */
 export function logoVisible(columns: number, rows: number): boolean {
   return columns >= LOGO_WIDTH + 2 && rows >= LOGO_MIN_ROWS;
 }
 
 export type Viewport = {
+  /** The real terminal width. Only the shell's own math should need this. */
   columns: number;
   rows: number;
   /** Rows the logo occupies right now (0 when hidden). */
   logoRows: number;
   /** Rows left for view content under the logo + header chrome. */
   contentRows: number;
+  /**
+   * Columns a view may draw in. Every width and every wrap width derives from
+   * this, never from `columns`: the shell renders content in a box this wide,
+   * so wrapping text at the terminal width would under-count rows and push the
+   * frame past the terminal's height (see computePromptRows).
+   */
+  contentColumns: number;
+  /** Left offset that centers the content column in the terminal. */
+  gutter: number;
 };
 
 /** Pure so extreme sizes are unit-testable without a terminal. */
 export function computeViewport(columns: number, rows: number): Viewport {
-  const logoRows = logoVisible(columns, rows) ? LOGO_LINES.length : 0;
+  const contentColumns = Math.min(columns, MAX_CONTENT_COLUMNS);
+  const logoRows = logoVisible(contentColumns, rows) ? LOGO_LINES.length : 0;
 
   return {
     columns,
     rows,
     logoRows,
     contentRows: Math.max(3, rows - logoRows - HEADER_CHROME_ROWS),
+    contentColumns,
+    gutter: Math.floor((columns - contentColumns) / 2),
   };
 }
 

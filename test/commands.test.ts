@@ -287,3 +287,46 @@ describe("parseCommand", () => {
     });
   });
 });
+
+describe("agent-setup", () => {
+  it("parses the bare subcommand", () => {
+    expect(parseCommand(["agent-setup"])).toMatchObject({
+      kind: "run",
+      command: { name: "agent-setup" },
+    });
+  });
+
+  it("still accepts the global flags", () => {
+    expect(parseCommand(["agent-setup", "--dry-run"])).toMatchObject({
+      kind: "run",
+      command: { name: "agent-setup" },
+      flags: { dryRun: true },
+    });
+    expect(
+      parseCommand(["agent-setup", "--provider", "anthropic"]),
+    ).toMatchObject({
+      kind: "run",
+      flags: { provider: "anthropic" },
+    });
+  });
+
+  it("rejects an unknown option", () => {
+    expect(parseCommand(["agent-setup", "--target", "claude"])).toMatchObject({
+      kind: "error",
+      message: "Unknown option for agent-setup: --target",
+    });
+  });
+
+  it("stays distinct from the agents subcommand", () => {
+    expect(parseCommand(["agents"])).toMatchObject({
+      command: { name: "agents" },
+    });
+  });
+
+  it("is documented in the help text", () => {
+    const help = getHelpText();
+
+    expect(help).toContain("sinscribe agent-setup");
+    expect(help).toContain(".claude/agents");
+  });
+});

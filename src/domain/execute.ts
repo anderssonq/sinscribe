@@ -2,6 +2,7 @@ import type { CommandSpec, GlobalFlags } from "../commands.js";
 import type { RunCallbacks } from "../llm/events.js";
 import { runAgent } from "../llm/agent.js";
 import { getRepoRoot } from "../git/repo.js";
+import { dryRunAgentSetup, runAgentSetupPrint } from "./agent-setup.js";
 import { dryRunAgents, runAgents } from "./agents.js";
 import { dryRunBranch, runBranch } from "./branch.js";
 import { dryRunCommit, runCommit } from "./commit.js";
@@ -33,6 +34,8 @@ export async function executeDryRun(
       return dryRunDocs(command, cwd);
     case "agents":
       return dryRunAgents(command, cwd);
+    case "agent-setup":
+      return dryRunAgentSetup(cwd);
     case "template":
       return runTemplateCommand(command, cwd, true);
     case "chat": {
@@ -71,6 +74,8 @@ export async function executeCommand(
       return runDocs(command, flags, cwd, callbacks);
     case "agents":
       return runAgents(command, flags, cwd, callbacks);
+    case "agent-setup":
+      return runAgentSetupPrint(flags, cwd, callbacks);
     case "template":
       return runTemplateCommand(command, cwd, false);
     case "chat": {
@@ -99,6 +104,7 @@ export function isAgenticCommand(command: CommandSpec): boolean {
     command.name === "context" ||
     command.name === "docs" ||
     command.name === "agents" ||
+    command.name === "agent-setup" ||
     command.name === "chat"
   );
 }

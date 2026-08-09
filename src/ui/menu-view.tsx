@@ -1,7 +1,12 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Box, Text, useInput } from "ink";
 import { MENU_PANEL_TITLE } from "./branding.js";
-import { MENU_ITEMS, type MenuChoice, type MenuItem } from "./menu-items.js";
+import {
+  MENU_ITEMS,
+  type MenuChoice,
+  type MenuDetail,
+  type MenuItem,
+} from "./menu-items.js";
 import { useOnClick, useOnWheel } from "./mouse.js";
 import {
   caretSplit,
@@ -14,7 +19,11 @@ import { Panel } from "./panel.js";
 import { visibleRowWindow, visibleSlice, wrapLines } from "./text-buffer.js";
 import { theme } from "./theme.js";
 import { useTextInput } from "./use-text-input.js";
-import { computePromptRows, useViewport } from "./viewport.js";
+import {
+  computePromptRows,
+  useViewport,
+  WIDE_LAYOUT_COLUMNS,
+} from "./viewport.js";
 
 /**
  * Rows the SelectList adds around its item window beyond the shared
@@ -37,10 +46,16 @@ function ClickableRow({
   return <Box ref={ref}>{children}</Box>;
 }
 
+/** Rows the wide layout's side panel spends on its heading and blank rule. */
+const DETAIL_HEADING_ROWS = 2;
+
 type MainMenuProps = {
   onSelect: (choice: MenuChoice) => void;
   isActive: boolean;
   items?: MenuItem[];
+  /** Repository context shown beside the list on a wide terminal (ignored
+   *  when narrow — there the header line already carries it). */
+  detail?: MenuDetail[];
 };
 
 /** Arrow-key select menu (replaces the free-text chat input). */
@@ -48,6 +63,7 @@ export function MainMenu({
   onSelect,
   isActive,
   items = MENU_ITEMS,
+  detail = [],
 }: MainMenuProps) {
   const [cursor, setCursor] = useState(0);
 
@@ -90,12 +106,19 @@ export function MainMenu({
     );
   });
 
-  const { columns, contentRows } = useViewport();
+  const { contentColumns, contentRows } = useViewport();
   // Clamp between a readable minimum and the classic 62-column cap, while
   // leaving one spare column on each side of narrow terminals.
-  const boxWidth = Math.max(30, Math.min(62, columns - 2));
+  const boxWidth = Math.max(30, Math.min(62, contentColumns - 2));
   // 2 border columns + paddingX 1 on each side.
   const innerWidth = Math.max(0, boxWidth - 4);
+  // Past the breakpoint the list keeps its readable 62 columns and the space
+  // beside it becomes a detail panel, instead of staying empty. The pane's
+  // width is computed rather than left to flexGrow: the hint is wrapped to it
+  // by hand, and wrapping to a width Yoga then disagrees with would miscount
+  // the rows this frame costs.
+  const detailWidth = contentColumns - boxWidth - 2;
+  const wide = contentColumns >= WIDE_LAYOUT_COLUMNS && detailWidth >= 24;
 
   const rows: ReactNode[] = [];
   let cursorRow = 0;
@@ -155,7 +178,9 @@ export function MainMenu({
       </ClickableRow>,
     );
 
-    if (focused) {
+    // Wide layout shows the hint in the side panel instead, which frees the
+    // row it costs here (and never truncates a long one).
+    if (focused && !wide) {
       // Clickable like the item row itself, and wrapping (not truncated) so
       // hints longer than the clamped box stay fully readable.
       rows.push(
@@ -179,9 +204,9 @@ export function MainMenu({
   // Window the menu rows only when they cannot fit: a frame taller than the
   // terminal scrolls the alt screen and leaves redraw residue. The budget
   // leaves room for the panel borders, the footer, the focused item's
-  // wrapping hint row, and the two overflow-indicator rows; the window
-  // stays centered on the cursor.
-  const maxMenuRows = Math.max(4, contentRows - 6);
+  // wrapping hint row (wide layout has none — that row is reclaimed), and the
+  // two overflow-indicator rows; the window stays centered on the cursor.
+  const maxMenuRows = Math.max(4, contentRows - (wide ? 5 : 6));
   let shownRows = rows;
   let hiddenAbove = 0;
   let hiddenBelow = 0;
@@ -197,19 +222,86 @@ export function MainMenu({
     hiddenBelow = rows.length - (start + maxMenuRows);
   }
 
+  const list = (
+    <Panel title={MENU_PANEL_TITLE} width={boxWidth}>
+      {hiddenAbove > 0 ? (
+        <Text color={theme.dim}>{`  ↑ ${hiddenAbove} more`}</Text>
+      ) : null}
+      {shownRows}
+      {hiddenBelow > 0 ? (
+        <Text color={theme.dim}>{`  ↓ ${hiddenBelow} more`}</Text>
+      ) : null}
+    </Panel>
+  );
+  const footer = (
+    <Text color={theme.faint}>↑↓ or j/k move · enter select · q quit</Text>
+  );
+
+  if (!wide) {
+    return (
+      <Box flexDirection="column">
+        {list}
+        {footer}
+      </Box>
+    );
+  }
+
   return (
     <Box flexDirection="column">
-      <Panel title={MENU_PANEL_TITLE} width={boxWidth}>
-        {hiddenAbove > 0 ? (
-          <Text color={theme.dim}>{`  ↑ ${hiddenAbove} more`}</Text>
-        ) : null}
-        {shownRows}
-        {hiddenBelow > 0 ? (
-          <Text color={theme.dim}>{`  ↓ ${hiddenBelow} more`}</Text>
-        ) : null}
-      </Panel>
-      <Text color={theme.faint}>↑↓ or j/k move · enter select · q quit</Text>
+      <Box columnGap={2} flexDirection="row">
+        <Box flexShrink={0}>{list}</Box>
+        <MenuDetailPane
+          detail={detail}
+          item={items[cursor]}
+          maxRows={maxMenuRows}
+          width={detailWidth}
+        />
+      </Box>
+      {footer}
     </Box>
+  );
+}
+
+/**
+ * The wide layout's right-hand column: the focused action's full hint plus the
+ * repository context the header otherwise crams into one truncated line.
+ * Bounded to the same row budget as the list so this column can never be the
+ * one that pushes the frame past the terminal's height.
+ */
+function MenuDetailPane({
+  item,
+  detail,
+  width,
+  maxRows,
+}: {
+  item: MenuItem | undefined;
+  detail: MenuDetail[];
+  width: number;
+  maxRows: number;
+}) {
+  // Two borders and one column of padding on each side.
+  const inner = Math.max(10, width - 4);
+  const hintRows = item ? wrapLines(item.hint, inner) : [];
+  const budget = Math.max(1, maxRows - DETAIL_HEADING_ROWS - detail.length);
+
+  return (
+    <Panel title="Details" width={width}>
+      <Text bold color={theme.accent} wrap="truncate-end">
+        {item?.label ?? ""}
+      </Text>
+      {hintRows.slice(0, budget).map((row, index) => (
+        <Text color={theme.dim} key={index} wrap="truncate-end">
+          {row.length > 0 ? row : " "}
+        </Text>
+      ))}
+      <Text> </Text>
+      {detail.map((row) => (
+        <Text key={row.label} wrap="truncate-end">
+          <Text color={theme.dim}>{row.label} </Text>
+          <Text color={theme.body}>{row.value}</Text>
+        </Text>
+      ))}
+    </Panel>
   );
 }
 
@@ -356,6 +448,162 @@ export function SelectList({
   );
 }
 
+type MultiSelectListProps = {
+  title: string;
+  items: SelectItem[];
+  /** Ids checked on mount (read once — remount with `key` to reseed). */
+  initialSelected?: string[];
+  /** Fires with the checked ids, in `items` order. */
+  onConfirm: (ids: string[]) => void;
+  onCancel: () => void;
+  isActive: boolean;
+};
+
+/**
+ * Checkbox list — SelectList's sibling for "pick several". Space toggles the
+ * focused row (so does a click), "a" toggles every row, enter confirms, esc
+ * cancels. The window math is SelectList's, unchanged: a list taller than the
+ * viewport makes the alt screen scroll and leaves redraw residue behind a
+ * shorter view.
+ */
+export function MultiSelectList({
+  title,
+  items,
+  initialSelected,
+  onConfirm,
+  onCancel,
+  isActive,
+}: MultiSelectListProps) {
+  const [cursor, setCursor] = useState(0);
+  const [selected, setSelected] = useState<Set<string>>(
+    () => new Set(initialSelected ?? items.map((item) => item.id)),
+  );
+
+  function toggle(id: string): void {
+    setSelected((current) => {
+      const next = new Set(current);
+
+      if (!next.delete(id)) {
+        next.add(id);
+      }
+
+      return next;
+    });
+  }
+
+  useInput(
+    (value, key) => {
+      if (key.upArrow || value === "k") {
+        setCursor((current) => (current + items.length - 1) % items.length);
+        return;
+      }
+
+      if (key.downArrow || value === "j") {
+        setCursor((current) => (current + 1) % items.length);
+        return;
+      }
+
+      if (value === " ") {
+        toggle(items[cursor].id);
+        return;
+      }
+
+      if (value === "a") {
+        setSelected((current) =>
+          current.size === items.length
+            ? new Set()
+            : new Set(items.map((item) => item.id)),
+        );
+        return;
+      }
+
+      if (key.return) {
+        onConfirm(
+          items.filter((item) => selected.has(item.id)).map((i) => i.id),
+        );
+        return;
+      }
+
+      if (key.escape || value === "q") {
+        onCancel();
+      }
+    },
+    { isActive },
+  );
+
+  useOnWheel((direction) => {
+    if (!isActive) {
+      return;
+    }
+
+    setCursor((current) =>
+      direction === "up"
+        ? (current + items.length - 1) % items.length
+        : (current + 1) % items.length,
+    );
+  });
+
+  const { contentRows } = useViewport();
+  // One row more chrome than SelectList: the count line above the hint.
+  const visible = Math.max(3, contentRows - SELECT_EXTRA_ROWS - 1);
+  const maxStart = Math.max(0, items.length - visible);
+  const start = Math.min(
+    maxStart,
+    Math.max(0, cursor - Math.floor(visible / 2)),
+  );
+  const windowItems = items.slice(start, start + visible);
+  const above = start;
+  const below = Math.max(0, items.length - (start + visible));
+
+  return (
+    <Box flexDirection="column">
+      <Text color={theme.accent}>{title}</Text>
+      <Box
+        borderColor={theme.border}
+        borderStyle="round"
+        flexDirection="column"
+        paddingX={1}
+      >
+        <Text color={theme.dim}>{above > 0 ? `  ↑ ${above} more` : " "}</Text>
+        {windowItems.map((item, offset) => {
+          const index = start + offset;
+          const focused = index === cursor;
+          const checked = selected.has(item.id);
+
+          return (
+            <ClickableRow key={item.id} onClick={() => toggle(item.id)}>
+              {/* One stable child list; only props and text content change
+                  between renders — toggling a middle child of a <Text> between
+                  null and a node corrupts Ink 5's reconciliation. */}
+              <Text wrap="truncate-end">
+                <Text color={focused ? theme.accent : theme.faint}>
+                  {focused ? "> " : "  "}
+                </Text>
+                <Text color={checked ? theme.ok : theme.dim}>
+                  {checked ? "[x] " : "[ ] "}
+                </Text>
+                <Text bold={focused} color={checked ? theme.body : theme.dim}>
+                  {item.label}
+                </Text>
+                <Text color={theme.dim}>
+                  {focused && item.hint.length > 0 ? ` — ${item.hint}` : ""}
+                </Text>
+              </Text>
+            </ClickableRow>
+          );
+        })}
+        <Text color={theme.dim}>{below > 0 ? `  ↓ ${below} more` : " "}</Text>
+        <Text color={theme.faint}>
+          {selected.size} of {items.length} selected
+        </Text>
+        <Text color={theme.dim}>
+          space toggles · a all/none · enter confirm · esc back
+        </Text>
+      </Box>
+    </Box>
+  );
+}
+
 type PreviewPaneProps = {
   title: string;
   text: string;
@@ -425,10 +673,10 @@ type ScrollViewProps = {
  * exits. Mirrors HelpView so the two scroll experiences feel identical.
  */
 export function ScrollView({ title, text, onExit, isActive }: ScrollViewProps) {
-  const { columns, contentRows } = useViewport();
+  const { contentColumns, contentRows } = useViewport();
   const [offset, setOffset] = useState(0);
 
-  const width = Math.max(20, columns - 2);
+  const width = Math.max(20, contentColumns - 2);
   const lines = useMemo(() => wrapLines(text, width), [text, width]);
 
   const visible = Math.max(4, contentRows - SCROLL_EXTRA_ROWS);
@@ -541,7 +789,7 @@ export function InlinePrompt({
   initialValue = "",
   mask = false,
 }: InlinePromptProps) {
-  const { columns } = useViewport();
+  const { contentColumns } = useViewport();
   const [state, setState] = useState(() => makeEditorState(initialValue));
   // Scroll offset of the horizontal window (see MultilinePrompt's startRef).
   const startRef = useRef(Infinity);
@@ -577,7 +825,7 @@ export function InlinePrompt({
 
   // Columns the value may draw in: the box's two borders and paddingX, the
   // "> " prefix, and the caret cell (which sits past the text when appending).
-  const textWidth = Math.max(8, columns - 6);
+  const textWidth = Math.max(8, contentColumns - 6);
   const length = Array.from(state.text).length;
   // Once the value outgrows the box it scrolls sideways, and the two edge
   // markers get a reserved column each so the row's width never changes.
@@ -673,7 +921,7 @@ export function MultilinePrompt({
   initialValue = "",
   visibleLines,
 }: MultilinePromptProps) {
-  const { columns, contentRows } = useViewport();
+  const { contentColumns, contentRows } = useViewport();
   const [state, setState] = useState(() => makeEditorState(initialValue));
   // Scroll offset of the cursor-following window; Infinity = bottom-anchored
   // until the first render computes a real start. A ref (not state): it is
@@ -721,8 +969,8 @@ export function MultilinePrompt({
   // not assumed: a 97-character label costs two rows at 80 columns and three
   // at 60. Plus the box's two borders and the one scroll-indicator row the
   // window can add.
-  const labelRows = wrapLines(label, columns).length;
-  const hintRows = wrapLines(hint, columns).length;
+  const labelRows = wrapLines(label, contentColumns).length;
+  const hintRows = wrapLines(hint, contentColumns).length;
   const fixedRows = labelRows + 3;
   // On a terminal too short for both, the hint is what goes: an unusable
   // one-row text area helps nobody, and an over-tall frame is worse than a
@@ -734,7 +982,7 @@ export function MultilinePrompt({
     { min: MIN_PROMPT_ROWS, max: visibleLines ?? MAX_PROMPT_ROWS },
   );
   // Two borders, two columns of padding, and the caret cell past the text.
-  const width = Math.max(8, columns - 5);
+  const width = Math.max(8, contentColumns - 5);
 
   let view = visibleRowWindow(
     state.text,

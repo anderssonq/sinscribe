@@ -4,6 +4,7 @@ import type { GlobalFlags } from "../commands.js";
 import { InitSetup, needsCredentialSetup } from "../credentials.js";
 import { executeCommand } from "../domain/execute.js";
 import { createThreadId } from "../llm/agent.js";
+import { AppShell } from "./app-shell.js";
 import {
   caretSplit,
   handleEditingKey,
@@ -101,7 +102,7 @@ export function ChatApp({
   onExitToMenu?: () => void;
 }) {
   const app = useApp();
-  const { columns, contentRows } = useViewport();
+  const { contentColumns, contentRows } = useViewport();
   const [turns, setTurns] = useState<ChatTurn[]>([]);
   const [input, setInput] = useState(() => makeEditorState(""));
   const [running, setRunning] = useState(false);
@@ -254,7 +255,7 @@ export function ChatApp({
     max: Math.min(INPUT_MAX_ROWS, Math.ceil(contentRows / 3)),
   });
   // Two borders, two columns of padding, the "> " prefix, and the caret cell.
-  const inputWidth = Math.max(8, columns - 7);
+  const inputWidth = Math.max(8, contentColumns - 7);
   let inputView = visibleRowWindow(
     input.text,
     input.cursor,
@@ -301,7 +302,7 @@ export function ChatApp({
   );
 
   return (
-    <Box flexDirection="column">
+    <AppShell>
       <Header subtitle="Interactive session — /exit to quit, /clear for a new thread" />
       {droppedTurns > 0 ? (
         <Text color={theme.dim}>… {droppedTurns} earlier turns</Text>
@@ -350,6 +351,6 @@ export function ChatApp({
           <ChatInputRows view={inputView} />
         )}
       </Panel>
-    </Box>
+    </AppShell>
   );
 }

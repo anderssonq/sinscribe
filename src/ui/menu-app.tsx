@@ -51,16 +51,20 @@ import {
 } from "../session/store.js";
 import { renderTemplatePreview } from "../templates/render.js";
 import { loadTemplates, type TemplateEntry } from "../templates/registry.js";
+import { AgentSetupFlow } from "./agent-setup.js";
 import { DocsReviewFlow } from "./docs-review.js";
 import { HelpView } from "./help-view.js";
 import { Logo } from "./logo.js";
 import { Panel } from "./panel.js";
-import { useViewport } from "./viewport.js";
+import { useViewport, WIDE_LAYOUT_COLUMNS } from "./viewport.js";
+import { countAgentFiles } from "../domain/agent-setup.js";
 import {
+  buildMenuDetail,
   buildMenuItems,
   isOnWorkBranch,
   type MenuChoice,
 } from "./menu-items.js";
+import { AppShell } from "./app-shell.js";
 import { MouseProvider } from "./mouse.js";
 import {
   InlinePrompt,
@@ -169,6 +173,7 @@ type MenuView =
   | { view: "template-pick"; templates: TemplateEntry[]; updating: boolean }
   | { view: "theme-pick"; previous: string }
   | { view: "docs-run" }
+  | { view: "agent-setup-run" }
   | {
       view: "settings";
       step: "provider" | "model" | "key";
@@ -273,13 +278,14 @@ export function MenuApp({
   const [session, setSession] = useState<BranchSession | null>(null);
   const [stats, setStats] = useState<HeaderStats>(EMPTY_STATS);
   const [detectedBase, setDetectedBase] = useState<string | null>(null);
+  const [agentFiles, setAgentFiles] = useState(0);
   // Name of the template highlighted in the picker, driving its live preview.
   // Null until the cursor first moves; the render falls back to the initial id.
   const [previewName, setPreviewName] = useState<string | null>(null);
   // Bumped to repaint the tree when the active palette is mutated in place
   // (theme preview) — setTheme() alone does not trigger a React render.
   const [, forceThemeRepaint] = useState(0);
-  const { columns, contentRows } = useViewport();
+  const { contentColumns, contentRows } = useViewport();
   // Rows each long session-context field may show in the review frame: the
   // panel's other four lines, its borders, the title and the footer take the
   // rest, and the two long fields split what is left.
@@ -308,10 +314,11 @@ export function MenuApp({
     const cwd = process.cwd();
     const root = await getRepoRoot(cwd);
     const currentBranch = root ? await getCurrentBranch(cwd) : null;
-    const [loaded, worktree, baseRef] = await Promise.all([
+    const [loaded, worktree, baseRef, agents] = await Promise.all([
       root && currentBranch ? loadSession(root, currentBranch) : null,
       root ? getWorktreeShortStat(cwd) : null,
       root ? resolveBaseRef(cwd, null) : null,
+      root ? countAgentFiles(root) : 0,
     ]);
     const range = baseRef ? await getRangeShortStat(cwd, baseRef) : null;
 
@@ -320,6 +327,7 @@ export function MenuApp({
     setSession(loaded);
     setStats({ worktree, range });
     setDetectedBase(baseRef);
+    setAgentFiles(agents);
 
     return {
       root,
@@ -820,6 +828,15 @@ export function MenuApp({
         setLog([]);
         setMode({ view: "docs-run" });
         return;
+      case "agent-setup":
+        if (repoRoot === null) {
+          showError("Set up project agents", "Not inside a git repository.");
+          return;
+        }
+
+        setLog([]);
+        setMode({ view: "agent-setup-run" });
+        return;
       case "rules":
         setMode({ view: "rules-tier-pick" });
         return;
@@ -1021,6 +1038,15 @@ export function MenuApp({
     session,
     branch,
     targetBase: session?.context?.baseRef ?? detectedBase,
+    agentFiles,
+  });
+  const menuDetail = buildMenuDetail({
+    branch,
+    targetBase: session?.context?.baseRef ?? detectedBase,
+    hasContext: Boolean(session?.context),
+    // One figure, same precedence as the Header: uncommitted work when there
+    // is any, otherwise the range against the target.
+    stat: stats.worktree ?? stats.range,
   });
 
   return (
@@ -1035,12 +1061,13 @@ export function MenuApp({
         mode.view === "pr-review" ||
         mode.view === "prompt-review" ||
         mode.view === "docs-run" ||
+        mode.view === "agent-setup-run" ||
         mode.view === "help" ||
         (mode.view === "settings" && mode.step !== "key") ||
         (mode.view === "settings-test" && mode.phase.kind !== "running")
       }
     >
-      <Box flexDirection="column">
+      <AppShell>
         <Logo />
         <Header
           // Branch and stats only refresh while the menu is on screen — hide
@@ -1054,16 +1081,23 @@ export function MenuApp({
                 ? `${mode.label} — review before approving`
                 : mode.view === "docs-run"
                   ? "Generate documentation — agent activity"
-                  : mode.view === "help"
-                    ? "Help — scroll with ↑/↓ or the wheel, esc to return"
-                    : mode.view === "clear-confirm"
-                      ? "Clear session context — this cannot be undone"
-                      : // Menu view: no subtitle — the header lines carry it.
-                        undefined
+                  : mode.view === "agent-setup-run"
+                    ? "Set up project agents — analyze, answer, generate"
+                    : mode.view === "help"
+                      ? "Help — scroll with ↑/↓ or the wheel, esc to return"
+                      : mode.view === "clear-confirm"
+                        ? "Clear session context — this cannot be undone"
+                        : // Menu view: no subtitle — the header lines carry it.
+                          undefined
           }
         />
         {mode.view === "menu" ? (
-          <MainMenu isActive items={menuItems} onSelect={handleSelect} />
+          <MainMenu
+            detail={menuDetail}
+            isActive
+            items={menuItems}
+            onSelect={handleSelect}
+          />
         ) : null}
         {mode.view === "session-input" ? (
           <Box flexDirection="column">
@@ -1183,7 +1217,7 @@ export function MenuApp({
             <Text color={theme.accent}>Session context for {branch}</Text>
             <Panel>
               <ContextField
-                columns={columns}
+                columns={contentColumns}
                 label="Feature: "
                 maxRows={fieldRows}
                 value={session?.context?.feature ?? "(none)"}
@@ -1193,7 +1227,7 @@ export function MenuApp({
                 {session?.context?.ticket ?? "(none)"}
               </Text>
               <ContextField
-                columns={columns}
+                columns={contentColumns}
                 label="Requirements & docs: "
                 maxRows={fieldRows}
                 value={session?.context?.requirements ?? "(none)"}
@@ -1257,7 +1291,7 @@ export function MenuApp({
                 mode.templates[0];
               // Side-by-side only when there's room; otherwise stack the preview
               // under the list so a narrow terminal never squeezes it.
-              const sideBySide = columns >= 100;
+              const sideBySide = contentColumns >= WIDE_LAYOUT_COLUMNS;
 
               const picker = (
                 <SelectList
@@ -1603,6 +1637,29 @@ export function MenuApp({
             }}
           />
         ) : null}
+        {mode.view === "agent-setup-run" ? (
+          <AgentSetupFlow
+            flags={flags}
+            isActive
+            onDone={(outcome) => {
+              if (outcome.status === "completed") {
+                const text = outcome.summary.join("\n");
+
+                onResult?.(text);
+                setMode({
+                  view: "result",
+                  label: "Set up project agents",
+                  result: text,
+                  error: null,
+                });
+              } else if (outcome.status === "cancelled") {
+                goToMenu();
+              } else {
+                showError("Set up project agents", outcome.message);
+              }
+            }}
+          />
+        ) : null}
         {mode.view === "pr-review" ? (
           <PrReviewFlow
             flags={flags}
@@ -1671,7 +1728,7 @@ export function MenuApp({
             <Text color={theme.dim}>press any key to return to the menu</Text>
           </Box>
         ) : null}
-      </Box>
+      </AppShell>
     </MouseProvider>
   );
 }

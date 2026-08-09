@@ -61,9 +61,9 @@ export async function runAgent(
   if (!providerSupportsAgentic(configuredProvider)) {
     throw new CliError(
       `The ${getProviderLabel(configuredProvider)} provider supports ` +
-        `pr/commit/branch/prompt only for now — context/docs/agents/chat ` +
-        `need a tool-calling provider. Switch providers in AI settings or ` +
-        `with SINSCRIBE_PROVIDER.`,
+        `pr/commit/branch/prompt only for now — ` +
+        `context/docs/agents/agent-setup/chat need a tool-calling provider. ` +
+        `Switch providers in AI settings or with SINSCRIBE_PROVIDER.`,
     );
   }
 
