@@ -188,6 +188,7 @@ ANTHROPIC_API_KEY="..."             # if you switch to anthropic
                                     # (kiro-cli needs no key — see below)
 SINSCRIBE_TICKET_PATTERN="(T-\d+)"  # optional custom ticket regex
 SINSCRIBE_THEME="ayu-dark"          # TUI color theme (set from the menu's Theme picker)
+SINSCRIBE_REDUCED_MOTION="1"        # freeze the loading animation (the timer keeps counting)
 ```
 
 The default provider is **OpenCode Go** (an OpenAI-compatible endpoint at

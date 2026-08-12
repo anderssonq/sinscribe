@@ -11,10 +11,10 @@
  * chalk on non-truecolor terminals.
  *
  * Each theme is defined by six anchor colors (background, foreground, accent,
- * a secondary accent, and the diff green/red); the greys, banner ramp, and
- * spinner pulse are derived from those so a scheme reads coherently without
- * hand-tuning thirteen values per theme. Palettes are inspired by the named
- * terminal/editor color schemes, not exact ports.
+ * a secondary accent, and the diff green/red); the greys, banner ramp, spinner
+ * pulse and loading shimmer are derived from those so a scheme reads coherently
+ * without hand-tuning fourteen values per theme. Palettes are inspired by the
+ * named terminal/editor color schemes, not exact ports.
  */
 
 import { SINSCRIBE_THEME_ENV_KEY } from "../constants.js";
@@ -88,6 +88,8 @@ export type Palette = {
   ramp: string[];
   /** Color cycle for the animated loading spinner. */
   spinner: string[];
+  /** Brightness ramp swept across a label while it loads, dimmest first. */
+  shimmer: string[];
 };
 
 /** The six colors that fully define a theme; everything else is derived. */
@@ -125,6 +127,7 @@ function makePalette(a: Anchors): Palette {
       mix(a.bg, a.accent, 0.85),
       mix(a.bg, a.accent, 0.65),
     ],
+    shimmer: ramp6(mix(a.bg, a.fg, 0.5), a.fg),
   };
 }
 
