@@ -45,8 +45,20 @@ vi.mock("../src/domain/pr.js", () => ({
     }),
 }));
 
+/**
+ * Deliberately not instant, and deliberately longer than Ink's ~32ms output
+ * throttle: generation is a network call, so the export picker has to get a
+ * frame of its own before the key that dismisses it arrives. Resolved any
+ * faster, the picker coalesces into the next frame and its height — the
+ * tallest this flow ever draws on a short terminal — is asserted by nothing.
+ */
+const GENERATION_DELAY_MS = 50;
+
 vi.mock("../src/domain/docs.js", () => ({
-  runDocs: () => Promise.resolve(LONG_DOCUMENT),
+  runDocs: () =>
+    new Promise((resolve) =>
+      setTimeout(() => resolve(LONG_DOCUMENT), GENERATION_DELAY_MS),
+    ),
 }));
 
 const FLAGS: GlobalFlags = {
@@ -79,6 +91,9 @@ const HANDOFF_INPUT = {
 
 // eslint-disable-next-line no-control-regex
 const ANSI_PATTERN = /\[[0-9;?]*[A-Za-z]/gu;
+
+/** ~1s of 10ms retries: enough for a loaded CI box, short enough to fail fast. */
+const KEY_DELIVERY_ATTEMPTS = 100;
 
 type FakeIO = {
   stdout: NodeJS.WriteStream;
@@ -118,10 +133,27 @@ function createFakeIO(columns: number, rows: number): FakeIO {
     pause: () => stdin,
   }) as unknown as NodeJS.ReadStream;
 
+  /**
+   * Ink only starts listening for "readable" once a useInput hook has asked
+   * for raw mode, so a key sent while a flow is still generating lands on a
+   * screen with no reader. A real stdin keeps those bytes buffered and
+   * re-signals when a consumer attaches; this emitter cannot, so re-signal
+   * until the key is actually read. Without the retry the key is dropped for
+   * good and the flow sits on the screen before the one under test — the
+   * race that only loses on a slow machine.
+   */
   const press = async (sequence: string) => {
     queue.push(sequence);
-    emitter.emit("readable");
-    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    for (let attempt = 0; attempt < KEY_DELIVERY_ATTEMPTS; attempt++) {
+      emitter.emit("readable");
+      await new Promise((resolve) => setTimeout(resolve, 10));
+
+      if (queue.length === 0) {
+        // Consumed: the sleep above already gave the re-render a tick.
+        return;
+      }
+    }
   };
 
   return { stdout, stdin, frames, press };
