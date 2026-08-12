@@ -33,6 +33,15 @@ import {
  */
 const SELECT_EXTRA_ROWS = 4;
 
+/** Item rows the list keeps even when the viewport says there is no room. */
+const SELECT_MIN_ROWS = 3;
+
+/** Columns the bordered box spends on its borders and horizontal padding. */
+const BOX_CHROME_COLUMNS = 4;
+
+/** Rendered and measured from one place so the wrap math can't drift. */
+const SELECT_FOOTER = "↑↓ or j/k to move · enter select · esc back";
+
 /** One selectable row: a Box registered as a click target (hooks can't go in loops). */
 function ClickableRow({
   onClick,
@@ -400,8 +409,24 @@ export function SelectList({
   // viewport makes the alt-screen scroll, and Ink then can't erase the taller
   // frame when a shorter view redraws over it — leaving residue (a duplicated
   // logo). Keep the cursor centered in the window so it is always visible.
-  const { contentRows } = useViewport();
-  const visible = Math.max(3, contentRows - SELECT_EXTRA_ROWS);
+  // SELECT_EXTRA_ROWS budgets one row each for the title and the footer, which
+  // a narrow terminal breaks: both wrap, and the rows they gain are rows the
+  // frame grows past the viewport. Charge the item window for the wrapped
+  // lines — and where the viewport is too short to pay, drop the footer (a
+  // hint about the standard keys) rather than overflow.
+  const { contentColumns, contentRows } = useViewport();
+  const footerRows = wrapLines(
+    SELECT_FOOTER,
+    Math.max(1, contentColumns - BOX_CHROME_COLUMNS),
+  ).length;
+  const wrappedRows =
+    wrapLines(title, contentColumns).length - 1 + (footerRows - 1);
+  const budget = contentRows - SELECT_EXTRA_ROWS - wrappedRows;
+  const showFooter = budget >= SELECT_MIN_ROWS;
+  const visible = Math.max(
+    SELECT_MIN_ROWS,
+    showFooter ? budget : budget + footerRows,
+  );
   const maxStart = Math.max(0, items.length - visible);
   const start = Math.min(
     maxStart,
@@ -440,9 +465,7 @@ export function SelectList({
           );
         })}
         <Text color={theme.dim}>{below > 0 ? `  ↓ ${below} more` : " "}</Text>
-        <Text color={theme.dim}>
-          ↑↓ or j/k to move · enter select · esc back
-        </Text>
+        {showFooter ? <Text color={theme.dim}>{SELECT_FOOTER}</Text> : null}
       </Box>
     </Box>
   );
