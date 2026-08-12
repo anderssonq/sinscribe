@@ -15,6 +15,7 @@ export const SINSCRIBE_PROVIDER_ENV_KEY = "SINSCRIBE_PROVIDER";
 export const SINSCRIBE_MODEL_ID_ENV_KEY = "SINSCRIBE_MODEL_ID";
 export const SINSCRIBE_TICKET_PATTERN_ENV_KEY = "SINSCRIBE_TICKET_PATTERN";
 export const SINSCRIBE_THEME_ENV_KEY = "SINSCRIBE_THEME";
+export const SINSCRIBE_REDUCED_MOTION_ENV_KEY = "SINSCRIBE_REDUCED_MOTION";
 
 /**
  * Env vars holding secret API credentials. Scrubbed from the shell environment

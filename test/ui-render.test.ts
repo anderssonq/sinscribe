@@ -17,6 +17,7 @@ import {
 } from "../src/ui/menu-view.js";
 import { Panel, TailPanel } from "../src/ui/panel.js";
 import { RunLog, type LogItem } from "../src/ui/run-view.js";
+import { Spinner } from "../src/ui/spinner.js";
 
 /** Swapped per test; the flows never reach a real model here. */
 let handoffDraft = "";
@@ -437,6 +438,25 @@ describe("UI at extreme terminal sizes", () => {
 
         expect(tallestFrameRows(frames)).toBeLessThan(rows);
       }
+    });
+  }
+
+  // The loading indicator is the one widget with no windowing of its own: it
+  // is one row by construction, so the invariant has to hold at any width.
+  for (const [columns, rows] of [
+    [20, 8],
+    [80, 24],
+    [300, 100],
+  ] as Array<[number, number]>) {
+    it(`Spinner stays a single row at ${columns}x${rows}`, async () => {
+      const frames = await renderOnce(
+        createElement(Spinner, { label: "Waiting for model output..." }),
+        columns,
+        rows,
+      );
+
+      expect(frames.length).toBeGreaterThan(0);
+      expect(tallestFrameRows(frames)).toBe(1);
     });
   }
 });
