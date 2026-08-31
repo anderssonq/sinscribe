@@ -98,7 +98,13 @@ export async function executeCommand(
   }
 }
 
-/** True when the command streams agent tool activity worth showing live. */
+/**
+ * True when the command streams agent tool activity worth showing live.
+ *
+ * This is a UI predicate, not the tier selector: each domain module picks its
+ * own runner. `prompt` is absent despite being LLM-backed because a prompt run
+ * produces no tool activity worth rendering.
+ */
 export function isAgenticCommand(command: CommandSpec): boolean {
   return (
     command.name === "context" ||

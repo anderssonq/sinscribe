@@ -16,8 +16,8 @@ describe("getDocsExportPath", () => {
   });
 
   it("never collides with a lowercase documentation.md on case-insensitive filesystems", () => {
-    // Tripwire: macOS filesystems are case-insensitive and this repo ships a
-    // documentation.md — the export name must not case-fold onto it.
+    // Tripwire: macOS filesystems are case-insensitive, so an export named
+    // DOCUMENTATION.md would silently overwrite a repo's own documentation.md.
     expect(DOCS_EXPORT_FILENAME.toLowerCase()).not.toBe("documentation.md");
   });
 });

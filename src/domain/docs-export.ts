@@ -3,8 +3,8 @@ import { CLI_DISPLAY_NAME, SINSCRIBE_VERSION } from "../constants.js";
 
 /**
  * Deliberately NOT "DOCUMENTATION.md": a repo may already keep a
- * documentation.md (this one does), and macOS filesystems are
- * case-insensitive — that name would silently overwrite it.
+ * documentation.md, and macOS filesystems are case-insensitive — that
+ * name would silently overwrite it.
  */
 export const DOCS_EXPORT_FILENAME = "PROJECT_DOCUMENTATION.md";
 
