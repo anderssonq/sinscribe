@@ -58,7 +58,7 @@ one-shot command or an interactive chat agent.
 - Node.js >= 20
 - git
 - An API key for a supported provider (OpenCode Go by default — see
-  [Configuration](#configuration))
+  [Configuration](#configuration)). The `kiro-cli` provider needs no key.
 
 ## Install
 
@@ -78,12 +78,21 @@ node dist/cli.js --help       # or: pnpm sinscribe --help
 
 ## Quick start
 
+The first command needs no API key, which makes it a good way to check that
+Sinscribe reads your repository correctly before you configure anything:
+
 ```bash
 cd your-repo
-sinscribe                 # interactive chat + menu over the current repo
-sinscribe pr              # draft a PR description from your local changes
-sinscribe commit          # Conventional Commit message from staged changes
-sinscribe pr --dry-run    # preview detection + scaffold, no API key needed
+sinscribe pr --dry-run          # detected branch, base, ticket, diff + scaffold
+```
+
+Then set a key and generate for real:
+
+```bash
+export OPENCODE_API_KEY=...     # or run `sinscribe` and let it ask
+sinscribe pr                    # draft a PR description from your local changes
+sinscribe commit                # Conventional Commit message from staged changes
+sinscribe                       # interactive menu + chat over the current repo
 ```
 
 The first interactive run asks for your provider API key and stores it in
@@ -104,9 +113,38 @@ The first interactive run asks for your provider API key and stores it in
 | `sinscribe agent-setup` | Analyze the project and write specialized agent definitions to `.claude/agents` |
 | `sinscribe template`    | Manage the template library (`list` / `show` / `add` / `edit` / `path`)         |
 
-### Common flags
+### Command options
 
-Every command supports:
+| Command       | Option                | Effect                                                                              |
+| ------------- | --------------------- | ----------------------------------------------------------------------------------- |
+| `pr`          | `--template <name>`   | Template to use (default: `andersoftware`)                                          |
+|               | `--base <ref>`        | Target branch to diff against (default: session, else detected)                     |
+|               | `--staged`            | Diff only staged changes (default: all local changes)                               |
+|               | `--ticket <id>`       | Ticket ID (default: parsed from the branch name)                                    |
+|               | `--out <file>`        | Write the description to a file                                                     |
+| `prompt`      | `--type <type>`       | `feature` or `bugfix` (default: inferred from the description)                      |
+|               | `--out <file>`        | Write the prompt to a file                                                          |
+|               | `--handoff`           | Also write `HANDOFF.md` without asking                                              |
+| `commit`      | `--all`, `-a`         | Use all tracked changes, not only staged                                            |
+|               | `--scope <scope>`     | Force the Conventional Commit scope                                                 |
+|               | `--no-gitmoji`        | Skip the gitmoji prefix (it is on by default)                                       |
+| `branch`      | `--type <type>`       | `feat`\|`fix`\|`chore`\|`docs`\|`refactor`\|`test`\|`perf`\|`build`\|`ci`\|`hotfix` |
+| `context`     | `--out <file>`        | Write the brief to a file                                                           |
+|               | `--format <md\|json>` | Output format (default: `md`)                                                       |
+| `docs`        | `--out <file>`        | Write the documentation to a file                                                   |
+| `agents`      | `--target <t>`        | `claude`\|`agents`\|`both` (default: `both`)                                        |
+|               | `--update`            | Surgically refresh existing files                                                   |
+| `agent-setup` | —                     | No options; the interactive flow asks what it needs                                 |
+| `template`    | `add --from <file>`   | Seed a new user template from an existing file                                      |
+
+`branch` takes a required ticket ID and/or description as positional arguments.
+`prompt` takes an optional description; without one it falls back to the saved
+session context.
+
+### Global options
+
+Accepted by every command, and — because they are parsed in one pass over the
+whole command line — they may appear anywhere in it.
 
 | Flag                | Effect                                                             |
 | ------------------- | ------------------------------------------------------------------ |
@@ -115,6 +153,11 @@ Every command supports:
 | `--model-id <id>`   | Model override for this run                                        |
 | `--provider <name>` | Provider override for this run (not persisted)                     |
 | `--api-key <key>`   | API key override for this run (not persisted)                      |
+| `-v, --version`     | Print the version                                                  |
+| `-h, --help`        | Show usage                                                         |
+
+`-p/--print` is also selected automatically when stdin is not a TTY, so
+`sinscribe` behaves correctly in a pipeline or a CI job.
 
 ### Examples
 
@@ -126,13 +169,18 @@ sinscribe pr --dry-run                      # branch/ticket/diff detection + sca
 
 # Commits & branches
 sinscribe commit --scope api --no-gitmoji
-sinscribe branch ABC-123 add retry logic to uploader   # → fix/... suggestions
+sinscribe branch ABC-123 add retry logic to uploader   # → feat/ABC-123-... suggestions
 
 # Prompts & project understanding
 sinscribe prompt --type bugfix uploader crashes on empty files
 sinscribe prompt --handoff -p "add retry logic"   # also writes HANDOFF.md
 sinscribe context --format json --out context.json
 sinscribe agents --target claude --update
+
+# Templates
+sinscribe template list
+sinscribe template show andersoftware
+sinscribe template path
 
 # Chat & per-run overrides
 sinscribe -p "what changed on this branch?"
@@ -176,8 +224,8 @@ ignore; Sinscribe never adds it to `.gitignore`.
 ## Configuration
 
 On first interactive run, Sinscribe asks for your provider API key and stores it
-in `~/.sinscribe/.env` (directory `0700`, file `0600`). Process env vars always
-win over the file, and nothing secret is ever printed.
+in `~/.sinscribe/.env` (directory `0700`, file `0600`). Real environment
+variables always win over the file, and nothing secret is ever printed.
 
 ```bash
 # ~/.sinscribe/.env (all optional; created by the CLI)
@@ -190,6 +238,33 @@ SINSCRIBE_TICKET_PATTERN="(T-\d+)"  # optional custom ticket regex
 SINSCRIBE_THEME="ayu-dark"          # TUI color theme (set from the menu's Theme picker)
 SINSCRIBE_REDUCED_MOTION="1"        # freeze the loading animation (the timer keeps counting)
 ```
+
+### Environment variables
+
+| Variable                     | Purpose                                                                        | Default                           |
+| ---------------------------- | ------------------------------------------------------------------------------ | --------------------------------- |
+| `SINSCRIBE_PROVIDER`         | Which provider to use                                                          | `opencode-go`                     |
+| `SINSCRIBE_MODEL_ID`         | Model for all runs                                                             | the provider's first listed model |
+| `SINSCRIBE_TICKET_PATTERN`   | Custom ticket regex; the first capture group is used                           | `ABC-123`, then `#123`            |
+| `SINSCRIBE_THEME`            | Persisted TUI color scheme                                                     | shipped default                   |
+| `SINSCRIBE_REDUCED_MOTION`   | `1` or `true` renders a static spinner frame; the elapsed timer keeps counting | off                               |
+| `SINSCRIBE_DEBUG`            | `1` prints provider/model/thread lines to stderr                               | off                               |
+| `OPENCODE_API_KEY`           | Key for `opencode-go` — note the name has no `GO`                              | —                                 |
+| `OPENROUTER_API_KEY`         | Key for `openrouter`                                                           | —                                 |
+| `BASETEN_API_KEY`            | Key for `baseten`                                                              | —                                 |
+| `FIREWORKS_API_KEY`          | Key for `fireworks`                                                            | —                                 |
+| `OPENAI_API_KEY`             | Key for `openai`                                                               | —                                 |
+| `ANTHROPIC_API_KEY`          | Key for `anthropic`                                                            | —                                 |
+| `ANTHROPIC_BASE_URL`         | Base-URL override for `anthropic`                                              | SDK default                       |
+| `OPENAI_COMPATIBLE_API_KEY`  | Key for `openai-compatible`                                                    | —                                 |
+| `OPENAI_COMPATIBLE_BASE_URL` | **Required** for `openai-compatible` — it has no default                       | —                                 |
+| `EDITOR` / `VISUAL`          | Editor opened by `template edit`                                               | `vi`                              |
+| `NO_COLOR`                   | Disables color and the terminal background control                             | color on                          |
+
+Resolution order for provider, model, and key: a per-run flag
+(`--provider` / `--model-id` / `--api-key`), then the environment, then
+`~/.sinscribe/.env`, then the built-in default. Per-run flags are never
+persisted.
 
 The default provider is **OpenCode Go** (an OpenAI-compatible endpoint at
 `https://opencode.ai/zen/go/v1`) with **Kimi K2.7 Code** as the default model —
@@ -214,6 +289,9 @@ endpoint (free, no tokens) to verify the key and model before saving.
 > Only the recommended providers (OpenCode Go and Kiro CLI) are exercised
 > regularly. The others ship as-is and may lag behind their vendors' API
 > changes — verify one with **Test connection** before relying on it.
+
+Every provider except `kiro-cli` supports the full command set. `kiro-cli` is
+limited to `pr`, `commit`, `branch`, and `prompt`; see below.
 
 ### Amazon Q Developer setup (`kiro-cli`)
 
@@ -293,10 +371,10 @@ library with `sinscribe template list | show | add | edit | path`.
 
 The menu (bare `sinscribe`) is **context-first**: on a branch with no saved
 context it opens straight into the context form, and the "Create PR
-description" / "Create branch name" items require a context before they run. A
-session captures **business context** per branch — feature description, ticket
-ID, requirements, and the **target branch** it merges into — stored in
-`<repo>/.sinscribe/sessions/<branch>.json`.
+description", "Create branch name", and "Create feature or bugfix prompt" items
+ask for a context before they run. A session captures **business context** per
+branch — feature description, ticket ID, requirements, and the **target branch**
+it merges into — stored in `<repo>/.sinscribe/sessions/<branch>.json`.
 
 - **`pr`** describes your local changes vs the target branch, from the merge
   base up — so it works before you commit, and commits that landed on the target
@@ -312,23 +390,67 @@ ID, requirements, and the **target branch** it merges into — stored in
   migrating the session so `pr` works there immediately. Once the branch differs
   from its target, the item becomes **Rename branch** (`git branch -m`).
 
+Session files live beside the project template tier, so `.sinscribe/.gitignore`
+ignores only `sessions/` — `.sinscribe/templates/` and `.sinscribe/rules.md`
+stay committable.
+
+## Project rules
+
+Free-text rules appended to every command's system prompt. Unlike templates,
+the two tiers are **additive** — both apply, each labeled by origin:
+
+- **Personal**: `~/.sinscribe/rules.md` — applies in every repository
+- **Project**: `<repo>/.sinscribe/rules.md` — applies here, meant to be committed
+
+Edit them from the menu's **Project rules** item. `--dry-run` reports which tiers
+are active and how large they are, without sending them anywhere.
+
+## Troubleshooting
+
+| Message                                                                   | Cause and fix                                                                                                                                    |
+| ------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `Not inside a git repository.`                                            | Every command except `template` needs a repo. `cd` into one.                                                                                     |
+| `Could not detect a target branch (tried origin/HEAD, origin/main, …)`    | No conventional default branch resolved. Pass `--base <ref>`, or save a target in the session context.                                           |
+| `No local changes vs <ref>. Nothing to describe.`                         | The branch matches its base. Commit or edit something, or check that `--base` points where you think.                                            |
+| `No staged changes vs <ref>.`                                             | You passed `--staged` with an empty index. `git add`, or drop the flag.                                                                          |
+| `Nothing staged. Stage changes with git add, or pass --all…`              | `commit` reads the index by default. Use `-a` for all tracked changes.                                                                           |
+| `<KEY> is required to run sinscribe with <Provider>.`                     | No API key for the selected provider. Set it in the environment, in `~/.sinscribe/.env`, or pass `--api-key`.                                    |
+| `Credentials are required for non-interactive runs.`                      | `-p/--print` and non-TTY runs cannot open the setup wizard. Set the key in the environment first.                                                |
+| `The <Provider> provider supports pr/commit/branch/prompt only for now…`  | You asked an agentic command of a provider without tool calling — today that means `kiro-cli`. Switch with `--provider` or `SINSCRIBE_PROVIDER`. |
+| `Template not found: <name>. Available pr templates: …`                   | Typo, or the template is in a tier that is not being read. Check `sinscribe template path` and `sinscribe template list`.                        |
+| `Template <name> is a commit template, not a pr template.`                | A user or project template shadows a built-in of the same name with a different `kind`. Rename one of them.                                      |
+| `Template <name> requires a ticket ID, but none was found…`               | The template has a required `from: branch` slot. Pass `--ticket <id>` or rename the branch.                                                      |
+| `Model did not produce a commit subject.` / invalid JSON                  | The model broke format. `pr` and `branch` retry once automatically; otherwise re-run, or try another model with `--model-id`.                    |
+| `git … timed out after 30s — a credential or GPG prompt may be blocking.` | A git subprocess is waiting on hidden input. Unlock your key, or configure a non-interactive credential helper.                                  |
+| `Model call timed out — …`                                                | No output for 120 s, or 10 minutes total on a single-shot command. Usually a stalled connection; the single-shot path retries on its own.        |
+| `Unknown option for <cmd>: <flag>` (or `Unknown option: <flag>`)          | The flag is not accepted there. `sinscribe --help` lists every command's options; note there is no per-command help.                             |
+
+Two tools worth reaching for first:
+
+```bash
+sinscribe <cmd> --dry-run        # what was detected, with no model call
+SINSCRIBE_DEBUG=1 sinscribe <cmd>  # provider, model, and thread on stderr
+```
+
 ## How it works
 
 - **`pr` / `commit` / `branch` / `prompt` are single-shot:** the CLI computes the
   diff and context locally and makes one model call — the model never touches
   your repo. (Branch creation/rename is a plain git call the CLI makes after you
   pick a name; the model only suggests names.)
-- **`context` / `docs` / `agents` / `agent-setup` / chat are agentic:** a deepagents loop with
-  read tools (and, for `agents`, write) rooted at the repository.
-- Sinscribe fails gracefully outside a git repository, never lets the agent read
-  `.env` files, and keeps secrets out of all output and logs.
+- **`context` / `docs` / `agents` / `agent-setup` / chat are agentic:** a
+  deepagents loop with read tools (and, for the write commands, scoped writes)
+  rooted at the repository.
+- Sinscribe fails gracefully outside a git repository, strips every API key from
+  the environment its agent's shell receives, and keeps secrets out of all
+  output and logs.
 
 Built with [Ink](https://github.com/vadimdemedes/ink),
 [LangChain](https://github.com/langchain-ai/langchainjs) /
 [LangGraph](https://github.com/langchain-ai/langgraphjs), and
 [deepagents](https://github.com/langchain-ai/deepagents). See
-[`DESIGN.md`](DESIGN.md) for the internals, and
-[`documentation.md`](documentation.md) for the maintainer reference.
+[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the internals and
+[`DESIGN.md`](DESIGN.md) for design decisions.
 
 ## Development
 
@@ -340,8 +462,9 @@ pnpm build
 ```
 
 CI ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) runs the same checks
-on push and PR. Setup, quality gates, and house conventions live in
-[`CONTRIBUTING.md`](CONTRIBUTING.md).
+on push and PR, on Node 20 and 22. Setup, quality gates, house conventions, and
+the release process live in
+[`docs/CONTRIBUTING.md`](docs/CONTRIBUTING.md).
 
 ## Why I built this
 

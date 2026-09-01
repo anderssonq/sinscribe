@@ -50,7 +50,8 @@
     "version-packages": "changeset version",
     "release": "changeset publish",
     "start": "node dist/cli.js",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage --coverage.include='src/**'"
   },
   "dependencies": {
     "@langchain/anthropic": "^1.5.1",
@@ -68,6 +69,7 @@
     "@eslint/js": "^10.0.1",
     "@types/node": "^22.10.2",
     "@types/react": "^18.3.17",
+    "@vitest/coverage-v8": "^4.1.9",
     "eslint": "^10.5.0",
     "prettier": "^3.8.4",
     "tsx": "^4.19.2",

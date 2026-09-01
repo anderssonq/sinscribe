@@ -31,6 +31,10 @@ export type MenuItem = {
   danger?: boolean;
 };
 
+/**
+ * Array order is render order, and `section` marks where a group starts — so
+ * inserting an item mid-array moves a group boundary, not just a row.
+ */
 export const MENU_ITEMS: MenuItem[] = [
   {
     id: "chat",
