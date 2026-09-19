@@ -9,62 +9,10 @@ Binary name: `sinscribe` (package `sinscribe`). Config home: `~/.sinscribe/.env`
 
 Subcommands are positional (rather than mode flags) because there are several of
 them; the flag-parsing style (hand-rolled loop → discriminated union) is kept.
-
-```
-sinscribe                                   # interactive chat/agent mode
-sinscribe pr         [--template <name>] [--base <ref>] [--ticket <id>] [--staged] [--out <file>]
-sinscribe prompt     [description...] [--type feature|bugfix] [--handoff] [--out <file>]
-sinscribe commit     [--all] [--scope <s>] [--no-gitmoji]
-sinscribe branch     <ticket-or-description...> [--type feat|fix|chore|...]
-sinscribe context    [--out <file>] [--format md|json]
-sinscribe docs       [--out <file>]
-sinscribe agents     [--target claude|agents|both] [--update]
-sinscribe agent-setup
-sinscribe template   list | show <name> | add <name> [--from <file>] | edit <name> | path
-
-Global flags (every command; may appear anywhere in the command line):
-  -p, --print          one-shot, print result to stdout, exit (also selected
-                       automatically whenever stdin is not a TTY)
-  --dry-run            no LLM call, no credential read; deterministic scaffold output
-  --model-id <id>      model override for this run
-  --provider <name>    provider override for this run (not persisted)
-  --api-key <key>      API key override for this run (not persisted)
-  -v, --version        print the version
-  -h, --help           help (global only; there is no per-command help)
-```
-
-### Per-command behavior
-
-| Command       | LLM mode             | Input                                                  | Output                                                                                              |
-| ------------- | -------------------- | ------------------------------------------------------ | --------------------------------------------------------------------------------------------------- |
-| `pr`          | single-shot          | `git diff <base>...HEAD` + commits + branch + template | Filled PR/MR description (stdout or `--out`)                                                        |
-| `prompt`      | single-shot          | branch/ticket context + your description               | Copy-ready feature/bugfix task prompt for an AI coding agent (stdout or `--out`)                    |
-| `commit`      | single-shot          | `git diff --staged` (or `--all` = tracked worktree)    | Conventional Commit + Gitmoji message; errors cleanly if nothing staged                             |
-| `branch`      | single-shot (tiny)   | ticket ID and/or free text                             | 3 suggested kebab-case branch names `type/TICKET-123-short-slug`                                    |
-| `context`     | agentic (deepagents) | repo exploration via agent tools                       | Structured brief: stack, entrypoints, conventions, key modules, scripts                             |
-| `docs`        | agentic (deepagents) | repo exploration                                       | Project documentation with mermaid diagrams (stdout, `--out`, or interactive export)                |
-| `agents`      | agentic (deepagents) | repo exploration                                       | Creates/updates CLAUDE.md and/or AGENTS.md inferred from the project. `--update` = surgical refresh |
-| `agent-setup` | agentic (deepagents) | repo exploration + interactive answers                 | Specialized agent definitions written to `.claude/agents` (two passes: plan, then write)            |
-| `template`    | none                 | template library on disk                               | list/show/add/edit; no LLM ever                                                                     |
-
-**Two-tier runner** (key architectural decision):
-
-- `runSingleShot(prompt, {modelId, onEvent})` — one `model.invoke/stream` call, no
-  checkpointer, no shell backend. Used by `pr`, `commit`, `branch`, `prompt`. Fast,
-  cheap, deterministic context (we compute the diff, the model never touches the repo).
-- `runAgent(task, cwd, options)` — the deepagents loop (LocalShellBackend with
-  `inheritEnv: false` plus an explicit `env: buildShellEnv()` — the caller's real
-  environment minus every key in `SECRET_ENV_KEYS`, so the shell keeps PATH/HOME/
-  SSH/git config but no API key; in-process MemorySaver checkpointer, so
-  conversation state lives only for the CLI process's lifetime; streamed
-  RunEvents). Used by `context`, `docs`, `agents`, `agent-setup`, and bare
-  interactive mode.
-
-The tier is chosen inside each domain module, not by a central predicate;
-`isAgenticCommand` in `domain/execute.ts` is a UI predicate that only decides
-whether tool activity is rendered live.
-
-Both emit the same `RunEvent` union so the Ink UI and print mode are shared.
+The commands and every flag are listed in [`README.md`](README.md#commands); how
+the single-shot/agentic tier is picked per command is in
+[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md#the-two-tier-runner). This file
+records only the decisions behind them.
 
 ### `--dry-run` per command (no LLM, no credentials)
 
@@ -80,107 +28,17 @@ Both emit the same `RunEvent` union so the Ink UI and print mode are shared.
 
 ## 2. Template schema
 
-Templates are Markdown files with YAML frontmatter and `{{placeholder}}` slots.
-
-Locations (later wins / overrides by name):
-
-1. Built-ins shipped in package: `templates/*.md` (andersoftware, github,
-   google, kubernetes, shopify, stripe)
-2. User global: `~/.sinscribe/templates/*.md`
-3. Project-local: `<repo>/.sinscribe/templates/*.md`
-
-```markdown
----
-name: jira
-kind: pr # pr | commit | branch  (which command may use it)
-description: PR description linking a Jira ticket
-placeholders:
-  ticket: { type: string, required: true, from: branch } # auto-detected
-  title: { type: string, required: true, from: llm }
-  summary: { type: markdown, required: true, from: llm }
-  changes: { type: list, required: true, from: llm }
-  test_plan: { type: markdown, required: false, from: llm }
-  branch: { type: string, required: true, from: git }
----
-
-## [{{ticket}}] {{title}}
-
-### Summary
-
-{{summary}}
-
-### Changes
-
-{{changes}}
-
-### Test plan
-
-{{test_plan}}
-```
-
-- `from: git|branch` placeholders are filled deterministically by the git layer
-  (also in `--dry-run`); `from: llm` slots are what the model is asked to produce
-  (as JSON matching the placeholder names, validated, then substituted).
-- Typed placeholders: `string` (single line), `markdown` (block), `list` (rendered as
-  `- item` bullets). Unknown/missing required → clear error, not silent blanks.
-- `template add <name>` scaffolds frontmatter; `template edit` opens `$EDITOR`.
+The placeholder schema, the three override tiers and the resolution sharp edges
+are documented once in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md#key-abstractions)
+and [`README.md`](README.md#templates). The decision worth recording here: slots
+declare **where their value comes from** (`from: llm|git|branch|input`) rather
+than being free-form, so `--dry-run` can fill the deterministic ones with no
+model call and a missing required slot fails before a request is ever sent.
 
 ## 3. Folder structure
 
-```
-sinscribe/
-├── package.json / tsconfig.json / eslint.config.js / .prettierignore
-├── templates/                  # shipped defaults: andersoftware, github, google,
-│                               #   kubernetes, shopify, stripe (.md)
-├── src/
-│   ├── cli.tsx                 # entry: parse → dry-run/offline/print | renders ui/ apps
-│   ├── commands.ts             # argv → CliCommand union, helpContent (rebuilt grammar)
-│   ├── constants.ts            # provider registry (opencode-go default, plus
-│   │                           #   openrouter/baseten/fireworks/openai/
-│   │                           #   openai-compatible/anthropic/kiro-cli),
-│   │                           #   SINSCRIBE_* env keys, SECRET_ENV_KEYS
-│   ├── env.ts                  # ~/.sinscribe/.env (renamed env keys)
-│   ├── credentials.tsx         # first-run wizard
-│   ├── ui/                     # Ink layer (apps + flows + pieces):
-│   │   ├── run-app.tsx  menu-app.tsx  chat-app.tsx   # the three apps
-│   │   ├── pr-review.tsx  prompt-review.tsx  docs-review.tsx
-│   │   │   handoff-review.tsx  agent-setup.tsx       # review/refine flows
-│   │   ├── run-view.tsx  menu-view.tsx  menu-items.ts # RunLog / pickers / prompts
-│   │   ├── theme.ts  term.ts  viewport.ts  no-color.ts # terminal control
-│   │   ├── text-buffer.ts  editor.ts  use-text-input.ts
-│   │   │   mouse.tsx  mouse-protocol.ts              # input layer
-│   │   └── shared.ts                                 # debug flag + error-text helpers
-│   ├── llm/
-│   │   ├── model.ts            # resolveModel(): credentials + model construction
-│   │   ├── single-shot.ts      # runSingleShot(): stream + JSON extraction
-│   │   ├── agent.ts            # runAgent(): deepagents loop, buildShellEnv()
-│   │   ├── errors.ts           # classify / retry / friendly messages
-│   │   ├── watchdog.ts         # inactivity + overall-deadline abort
-│   │   ├── healthcheck.ts      # provider "Test connection"
-│   │   ├── events.ts           # RunEvent types + callbacks
-│   │   └── kiro-cli/           # ChatKiroCli subprocess model + tools:[] agent
-│   ├── git/
-│   │   ├── run.ts              # runGit() never-throw wrapper
-│   │   ├── repo.ts             # isGitRepo, currentBranch, defaultBaseRef, remotes
-│   │   ├── diff.ts             # stagedDiff, rangeDiff(base), diffStats, size capping
-│   │   └── ticket.ts           # ticket-ID parsing from branch / input
-│   ├── templates/
-│   │   ├── schema.ts           # frontmatter parse + placeholder typing + validation
-│   │   ├── registry.ts         # 3-tier discovery/override, list/resolve
-│   │   └── render.ts           # substitution (git-filled + llm-filled slots)
-│   ├── session/                # per-branch <repo>/.sinscribe/sessions/<branch>.json
-│   ├── util/                   # clipboard
-│   └── domain/                 # one module per command (prompt building + orchestration)
-│       ├── pr.ts  prompt.ts  commit.ts  branch.ts  context.ts  docs.ts
-│       │   agents.ts  agent-setup.ts  handoff.ts  template.ts
-│       ├── execute.ts          # dispatch + isAgenticCommand/isOfflineCommand
-│       ├── branch-actions.ts   # the only git writes (checkout -b / branch -m)
-│       ├── rules.ts            # additive user + project rule tiers
-│       ├── *-export.ts         # PR_DESCRIPTION / AGENT_PROMPT / HANDOFF / docs
-│       ├── errors.ts           # CliError
-│       └── prompts.ts          # system/user prompt builders
-└── test/                       # vitest: one file per module (42 files)
-```
+See the module map in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md#module-map),
+which is the single copy — a second tree in this file only drifts from it.
 
 ## 4. Git-integration layer
 
@@ -188,12 +46,14 @@ sinscribe/
   fails fast with `Not inside a git repository.` (exit 1) — including in `--dry-run`.
 - **Staged diff** (`commit`): `git diff --staged --unified=3` + `--name-status`;
   empty → "Nothing staged. Stage changes with `git add` (or pass --all)."
-- **PR diff** (`pr`): base ref resolution order: `--base` flag →
-  `origin/HEAD` symbolic ref → `main`/`master` existence probe → error with hint.
+- **PR diff** (`pr`): base ref resolution order: `--base` flag → `origin/HEAD`
+  symbolic ref → first existing of `origin/main`, `origin/master`,
+  `origin/develop`, `main`, `master`, `develop` → error with hint.
   Diff = `git diff <base>...HEAD` plus `git log <base>..HEAD --oneline`.
-- **Size capping**: diffs truncated per-file and overall (~50KB) with a
-  `[truncated: N more files]` marker so prompts stay bounded (the agent's
-  LocalShellBackend caps output similarly via maxOutputBytes).
+- **Size capping**: diffs are byte-capped (50 KB, `MAX_DIFF_BYTES`) and cut at the
+  last newline, with a `[diff truncated to N bytes]` marker so prompts stay
+  bounded (the agent's LocalShellBackend caps output similarly via
+  `maxOutputBytes`).
 - **Ticket parsing** (`ticket.ts`): regexes over branch name / user input:
   `[A-Z][A-Z0-9]+-\d+` (Jira), `#\d+` (GitHub), configurable via
   `SINSCRIBE_TICKET_PATTERN` env. Used by `pr` (auto), `branch` (input), `commit`
@@ -297,15 +157,14 @@ this application"` even with a perfectly correct request and a valid token.
 
 ## 6. Open decisions (defaults chosen, flag if you disagree)
 
-1. **Default provider = opencode-go, default model = Kimi K2.7 Code** (changed
-   2026-07-08 from the original openrouter/GLM choice; the CLI still targets
-   cheap models first). The full provider set is kept selectable
-   (openrouter / baseten / fireworks / openai / openai-compatible / anthropic),
-   but only opencode-go and kiro-cli are recommended — supported and regularly
-   tested; the rest are not actively maintained.
+1. **Default provider = opencode-go, default model = Kimi K2.7 Code**, changed
+   2026-07-08 from the original openrouter/GLM choice — the CLI still targets
+   cheap models first. Which providers are recommended versus merely selectable
+   is recorded in §5 and not repeated here.
 2. **`branch` uses the LLM only when input is a description**; pure ticket ID input is
    handled deterministically.
 3. **Interactive mode kept** (bare `sinscribe` opens the Ink chat/agent); the
    subcommands are the primary UX.
-4. **deepagents dependency kept** for `context`/`docs`/`agents`/`agent-setup`/`chat`;
-   `pr`/`commit`/`branch`/`prompt` bypass it entirely.
+4. **deepagents dependency kept** — the two-tier split itself is an invariant, not
+   an open decision; see `docs/ARCHITECTURE.md`. What stays open is whether the
+   dependency earns its weight for only five commands.

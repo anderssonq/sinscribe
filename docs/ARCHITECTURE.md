@@ -311,43 +311,20 @@ silently falling back to the built-in.
 
 ## Extension points
 
-### Add a provider
+The step-by-step recipes for adding a provider, a subcommand, or a template live
+in [`CONTRIBUTING.md`](CONTRIBUTING.md#recipes) — they are procedures a
+contributor follows, and keeping one copy means they cannot drift apart. What
+belongs here is the shape those procedures assume:
 
-1. Add the literal to the `SinscribeProvider` union in `src/constants.ts`.
-2. Add its API-key env constant, and add that constant to `SECRET_ENV_KEYS` if
-   it is a secret (base URLs are not).
-3. Add a `PROVIDER_CONFIGS` entry. The first entry in `modelOptions` becomes the
-   provider's default model.
-4. Add it to `SELECTABLE_PROVIDERS` to make it appear in the settings picker.
-5. Add the env keys to `managedEnvKeys` in `src/env.ts`, and to the list in
-   `getCredentialDiagnostics()` if they should show in diagnostics.
-6. Touch `src/llm/model.ts` **only if the SDK class differs.** `createModel`
-   special-cases Anthropic and OpenRouter and otherwise falls through to
-   `ChatOpenAI` with a base URL — so an OpenAI-compatible provider needs no code
-   there at all.
-
-### Add a template
-
-Drop a `.md` file with valid frontmatter into any tier directory, or run
-`sinscribe template add <name>`, which validates before writing so a broken
-template never lands in the library. Required frontmatter: `name` and `kind`.
-Placeholder names must be lower_snake_case; `type` defaults to `string`, `from`
-to `llm`, and `required` to **true**.
-
-Unparseable template files are skipped silently rather than failing the run —
-`template list` shows only valid ones.
-
-### Add a command
-
-1. `SUBCOMMANDS` and a variant in `CommandSpec` (`src/commands.ts`).
-2. A `parseX(args)` function plus a case in `parseSubcommand`.
-3. An entry in `getHelpText()`.
-4. `src/domain/<name>.ts` exporting `runX()` and `dryRunX()`.
-5. Cases in both `executeCommand` and `executeDryRun`. TypeScript will tell you
-   if you forget one.
-6. Add to `isAgenticCommand` only if it streams tool activity worth rendering;
-   to `isOfflineCommand` only if it needs neither model nor credentials.
-7. Optionally an Ink flow, a branch in `RunApp`, and a `MENU_ITEMS` entry.
+- **Providers** are pure registry data. `PROVIDER_CONFIGS` in `src/constants.ts`
+  is the only place that knows a provider exists; `createModel()` special-cases
+  Anthropic and OpenRouter and otherwise falls through to `ChatOpenAI` with a
+  base URL, so an OpenAI-compatible provider needs no code in `src/llm/` at all.
+- **Subcommands** are a discriminated union. `CommandSpec` plus the exhaustive
+  `switch` in both `executeCommand` and `executeDryRun` means TypeScript, not a
+  checklist, tells you what you have not wired up yet.
+- **Templates** are files, not code. The three tiers are resolved at run time, so
+  adding one requires no rebuild — see [Layered configuration](#layered-configuration).
 
 ## Design decisions and their tradeoffs
 
