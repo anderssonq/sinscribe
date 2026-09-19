@@ -42,8 +42,7 @@
 
   `.gitignore` now anchors its `ARCHITECTURE.md` entry to the repository root.
   The bare pattern matched at every depth, so it would have silently swallowed
-  `docs/ARCHITECTURE.md`; the private openwiki recon notes at the root stay
-  ignored.
+  `docs/ARCHITECTURE.md`.
 
 ## 1.4.0
 
@@ -179,7 +178,7 @@ agent-setup`, with the usual credential-free `--dry-run`; a non-interactive run
 
 ### Major Changes
 
-- # 🔖 release: v1.0.0 — first stable release
+- 🔖 release: v1.0.0 — first stable release
 
   Sinscribe graduates out of beta. The CLI surface (commands, flags, env vars,
   config layout under `~/.sinscribe`), the three-tier template system, and the
@@ -212,7 +211,7 @@ agent-setup`, with the usual credential-free `--dry-run`; a non-interactive run
   `runSingleShot`, with no tools or checkpointer — rules are plain text read
   from local files before that one call, same as the diff or branch name.
 
-- # ✨ feat: `/exit` returns to the main menu from menu-launched chat
+- ✨ feat: `/exit` returns to the main menu from menu-launched chat
 
   Typing `/exit` (or `/quit`) in an interactive chat that was opened from the
   main menu now returns to the menu instead of quitting the app, so a chat
@@ -295,7 +294,7 @@ agent-setup`, with the usual credential-free `--dry-run`; a non-interactive run
   not — so chat launches as its own render pass right after the menu's exits,
   rather than being nested inside it).
 
-- # 💄 style: mark recommended providers in the picker
+- 💄 style: mark recommended providers in the picker
 
   The AI provider picker now suffixes OpenCode Go and Amazon Q Developer
   (Kiro CLI) — the two providers Sinscribe is regularly tested against — with

@@ -5,7 +5,16 @@ coverage/
 .env
 .tmp/
 
-# Internal / not-for-public (kept locally, never committed)
-.claude/skills/
+# Internal / not-for-public (kept locally, never committed).
+# .claude/ is deny-by-default: anything added there stays local unless it is
+# explicitly re-included below, so a new rules/, agents/ or settings.local.json
+# cannot become trackable by accident.
+.claude/*
+# !.claude/settings.json   # uncomment only for a deliberately shared team config
+
 AGENT_PROMPT.md
 /ARCHITECTURE.md
+
+# `sinscribe prompt` writes this at the repo root and never self-ignores it;
+# it holds open questions and blockers, so keep it out of a public repo.
+HANDOFF.md

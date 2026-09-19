@@ -75,6 +75,11 @@ Vitest, run with `pnpm test` (single pass; there is no watch script). There is n
 
 - `test/git-fixture.ts` builds throwaway repositories under `mkdtemp` for the git
   plumbing tests. Use it rather than mocking git.
+- **Mock only at true I/O boundaries** — `../src/llm/single-shot.js`,
+  `../src/llm/agent.js`, `node:child_process`, `node:os`. Never mock the module
+  under test or its pure collaborators.
+- **Redirect `node:os`'s `homedir()`** in any test that touches `~/.sinscribe`,
+  so a run can never read or write the developer's real configuration.
 - `test/tsconfig.json` extends the root config and is what feeds eslint's
   `projectService` for type-checked linting of test files. `pnpm build` does not
   compile `test/`.
@@ -123,9 +128,16 @@ end to end. Exercise those by hand with `pnpm dev <cmd>` and `--dry-run`.
 ### Add a template
 
 Drop a `.md` in `templates/` with valid frontmatter (`name`, `kind`,
-`placeholders`). Every `{{slot}}` needs a frontmatter entry, and every
-`from: llm` slot should carry a `description` — it goes into the prompt as the
-instruction for that slot. Verify with:
+`placeholders`), or run `sinscribe template add <name>`, which validates before
+writing so a broken template never lands in the library. Every `{{slot}}` needs a
+frontmatter entry, and every `from: llm` slot should carry a `description` — it
+goes into the prompt as the instruction for that slot. Placeholder names must be
+lower_snake_case; `type` defaults to `string`, `from` to `llm`, and `required` to
+**true**.
+
+Note that an unparseable template is **skipped silently** rather than failing the
+run — `template list` shows only valid ones, so a typo in frontmatter looks like
+a missing template. Verify with:
 
 ```bash
 pnpm dev template show <name>
@@ -161,6 +173,12 @@ behind an extra model call.
   and **bound inputs** (diffs are byte-capped, model IDs are validated).
 - **Secrets never surface.** Only `~/.sinscribe/.env` (0600) and `process.env`;
   diagnostics stay redacted.
+- **Check the ignore rules before adding a doc or a dotfile.** `.claude/` is
+  deny-by-default and `.gitignore` carries bare patterns that match at every
+  depth — a bare `ARCHITECTURE.md` entry once silently swallowed
+  `docs/ARCHITECTURE.md`. Run `git check-ignore -v <path>` on any new file whose
+  name already appears in `.gitignore`: no output means it will be committed,
+  and a match means it will vanish with no error either way.
 - Prefer **discriminated unions with exhaustive `switch`**, named exports, and
   alphabetised keys. Match the surrounding style.
 - Comment the **why**, not the what. The existing comments are the model to

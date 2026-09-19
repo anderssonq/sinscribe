@@ -26,7 +26,7 @@ context files (`CLAUDE.md` / `AGENTS.md`). It runs in your terminal as a
 one-shot command or an interactive chat agent.
 
 > [!NOTE]
-> **Stable (v1.0.0).** Sinscribe is in daily use and its CLI surface —
+> **Stable since v1.0.0.** Sinscribe is in daily use and its CLI surface —
 > commands, flags, env vars, and config layout — is now covered by semver.
 > Install it globally with `npm install -g sinscribe`, or
 > [from source](#install) for development.
@@ -198,19 +198,9 @@ what is still open — only in your head. After you approve a prompt,
 `sinscribe prompt` offers to write a **`HANDOFF.md`** at the repo root: a
 snapshot of where the branch stands, not an accumulated log.
 
-```markdown
-## Where things stand
-
-## What was done this session
-
-## Key decisions
-
-## Open questions
-
-## Next steps
-
-## Known issues / blockers
-```
+It is a fixed set of headings — where things stand, what was done, key
+decisions, open questions, next steps, known issues — written empty for you to
+fill, or filled by the model from the session.
 
 The next `sinscribe prompt` on that branch reads the file back and feeds it to
 the model, so a second iteration starts warm instead of re-deriving settled
@@ -310,12 +300,8 @@ each model's credit multiplier, e.g. `qwen3-coder-next` (0.05x) up to
 `claude-sonnet-4.5` (1.30x). `auto` (the default) lets Kiro choose.
 
 **Why a subprocess and not the API?** AWS restricts Q subscriptions to
-_approved applications_: a third-party client that registers itself is
-refused with `AccessDeniedException: "Your subscription does not support
-this application"` however correct its request is. Rather than impersonate
-an approved client, Sinscribe drives the official one — the approved client
-makes the call, as itself — which also means the wire format stays AWS's
-responsibility rather than something we reverse-engineer.
+_approved applications_, so Sinscribe drives the official client rather than
+impersonating one. The full reasoning is in [`DESIGN.md`](DESIGN.md).
 
 **Tools are off, by construction.** Sinscribe runs `kiro-cli chat` with a
 generated agent that declares `"tools": []`, so the model can write text but
