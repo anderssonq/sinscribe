@@ -67,10 +67,15 @@ export async function runAgent(
     );
   }
 
+  const threadId = options.threadId ?? createThreadId(cwd);
+
   const { model, modelId, provider } = await resolveModel({
     modelId: options.modelId ?? null,
     provider: options.provider ?? null,
     apiKey: options.apiKey ?? null,
+    // One conversation, one provider session: chat reuses its thread id
+    // across turns, so OpenCode Go keeps routing and caching it together.
+    sessionId: threadId,
   });
 
   emitDebug(options, `provider=${provider} model=${modelId}`);
@@ -97,8 +102,6 @@ export async function runAgent(
     }),
     systemPrompt,
   });
-
-  const threadId = options.threadId ?? createThreadId(cwd);
 
   emitDebug(options, `thread=${threadId}`);
 

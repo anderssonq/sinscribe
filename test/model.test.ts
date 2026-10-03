@@ -1,5 +1,27 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { resolveModelId, resolveProviderApiKey } from "../src/llm/model.js";
+import { ChatOpenAI } from "@langchain/openai";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { SINSCRIBE_VERSION } from "../src/constants.js";
+import { ChatClaudeCli } from "../src/llm/claude-cli/model.js";
+import { ChatKiroCli } from "../src/llm/kiro-cli/model.js";
+import {
+  resolveModel,
+  resolveModelId,
+  resolveProviderApiKey,
+} from "../src/llm/model.js";
+import { createOpencodeSessionId } from "../src/llm/opencode-go.js";
+
+/** Redirect ~/.sinscribe so tests never read or write the real one. */
+const FAKE_HOME = vi.hoisted(
+  () => `/tmp/sinscribe-model-home-${process.pid}-${Date.now()}`,
+);
+
+vi.mock("node:os", async (importOriginal) => {
+  const original = await importOriginal<typeof import("node:os")>();
+
+  const homedir = (): string => FAKE_HOME;
+
+  return { ...original, default: { ...original, homedir }, homedir };
+});
 
 const OPENCODE_KEY = "OPENCODE_API_KEY";
 const MODEL_ID_KEY = "SINSCRIBE_MODEL_ID";
@@ -73,5 +95,78 @@ describe("resolveModelId", () => {
     expect(() => resolveModelId("bad id with spaces", "opencode-go")).toThrow(
       /Invalid model ID/,
     );
+  });
+});
+
+function headersOf(model: unknown): Record<string, string> {
+  expect(model).toBeInstanceOf(ChatOpenAI);
+
+  return ((model as ChatOpenAI).clientConfig.defaultHeaders ?? {}) as Record<
+    string,
+    string
+  >;
+}
+
+describe("OpenCode Go request headers", () => {
+  // Without x-opencode-session, OpenCode Go answers 400 "Request is missing
+  // x-opencode-session and cannot be routed efficiently".
+  it("identifies sinscribe and sends a session id", async () => {
+    const { model } = await resolveModel({
+      provider: "opencode-go",
+      apiKey: "sk-test",
+    });
+    const headers = headersOf(model);
+
+    expect(headers["x-opencode-session"]).toMatch(/^ses_[0-9a-f]{26}$/u);
+    expect(headers["x-opencode-client"]).toBe("sinscribe");
+    expect(headers["User-Agent"]).toBe(`sinscribe/${SINSCRIBE_VERSION}`);
+  });
+
+  it("uses the caller's session id verbatim so chat turns share it", async () => {
+    const { model } = await resolveModel({
+      provider: "opencode-go",
+      apiKey: "sk-test",
+      sessionId: "sinscribe-thread-1",
+    });
+
+    expect(headersOf(model)["x-opencode-session"]).toBe("sinscribe-thread-1");
+  });
+
+  it("mints a new session per model when none is given", async () => {
+    const first = await resolveModel({ provider: "opencode-go", apiKey: "k" });
+    const second = await resolveModel({ provider: "opencode-go", apiKey: "k" });
+
+    expect(headersOf(first.model)["x-opencode-session"]).not.toBe(
+      headersOf(second.model)["x-opencode-session"],
+    );
+  });
+
+  it("keeps x-opencode-* headers away from other providers", async () => {
+    const { model } = await resolveModel({ provider: "openai", apiKey: "k" });
+
+    expect(headersOf(model)).not.toHaveProperty("x-opencode-session");
+  });
+
+  it("session ids fit OpenCode's 30-char tracking window", () => {
+    expect(createOpencodeSessionId()).toHaveLength(30);
+  });
+});
+
+describe("local-cli providers", () => {
+  it("routes claude-cli to the Claude Code CLI model", async () => {
+    const { model, modelId } = await resolveModel({
+      provider: "claude-cli",
+      modelId: "haiku",
+    });
+
+    expect(model).toBeInstanceOf(ChatClaudeCli);
+    expect((model as ChatClaudeCli).command).toBe("claude");
+    expect(modelId).toBe("haiku");
+  });
+
+  it("still routes kiro-cli to the Kiro CLI model", async () => {
+    const { model } = await resolveModel({ provider: "kiro-cli" });
+
+    expect(model).toBeInstanceOf(ChatKiroCli);
   });
 });
