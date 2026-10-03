@@ -78,6 +78,8 @@ Each module owns its git reads, its prompt assembly, and its choice of runner.
 | `watchdog.ts`    | Inactivity watchdog and `raceAbort()`.                                                                              |
 | `healthcheck.ts` | `testProviderConnection()` for the settings "Test connection" step.                                                 |
 | `kiro-cli/`      | `ChatKiroCli` (a `BaseChatModel` driving the `kiro-cli` binary), its generated agent config, and an output cleaner. |
+| `claude-cli/`    | `ChatClaudeCli` (a `BaseChatModel` driving `claude -p`) and its stream-json parser.                                 |
+| `opencode-go.ts` | The headers OpenCode Go requires (`x-opencode-session`, `User-Agent`) and session-id minting.                       |
 
 ### `src/templates/`, `src/session/`, `src/util/`
 
@@ -168,7 +170,7 @@ future format change can be detected rather than guessed at.
 ### `ResolvedModel`
 
 `{ provider, modelId, model }`, where `model` is one of `ChatAnthropic`,
-`ChatOpenAI`, `ChatOpenRouter`, or `ChatKiroCli`. Produced only by
+`ChatOpenAI`, `ChatOpenRouter`, `ChatKiroCli`, or `ChatClaudeCli`. Produced only by
 `resolveModel()`, which is the single point where credentials are read and a
 model is constructed.
 
@@ -241,7 +243,7 @@ Two exceptions to state precisely, so nobody "discovers" them as bugs:
 Tier 1's "no tools" property is enforced in three places: the absence of any tool
 wiring in `runSingleShot`, `tools: []` in `createDeepAgent`, and — for the
 `kiro-cli` provider, whose engine is someone else's CLI — a generated agent
-config that declares `"tools": []`.
+config that declares `"tools": []` (and for `claude-cli`, `--tools ""`).
 
 ## Control flow
 

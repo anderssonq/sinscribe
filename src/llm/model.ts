@@ -18,12 +18,18 @@ import {
   type SinscribeProvider,
 } from "../constants.js";
 import { loadSinscribeEnv } from "../env.js";
+import { ChatClaudeCli } from "./claude-cli/model.js";
 import { ChatKiroCli } from "./kiro-cli/model.js";
+import {
+  buildOpencodeGoHeaders,
+  createOpencodeSessionId,
+} from "./opencode-go.js";
 
 export type ResolvedModel = {
   provider: SinscribeProvider;
   modelId: string;
-  model: ChatAnthropic | ChatOpenAI | ChatOpenRouter | ChatKiroCli;
+  model:
+    ChatAnthropic | ChatOpenAI | ChatOpenRouter | ChatKiroCli | ChatClaudeCli;
 };
 
 export type ModelOverrides = {
@@ -35,6 +41,12 @@ export type ModelOverrides = {
    * The single-shot path passes 0 so its own backoff wrapper owns retrying.
    */
   maxRetries?: number;
+  /**
+   * Stable id for the conversation this model serves. OpenCode Go requires
+   * one (x-opencode-session); chat passes its thread id so every turn shares
+   * it. Omitted, a fresh id is minted — one per single-shot invocation.
+   */
+  sessionId?: string | null;
 };
 
 /**
@@ -53,11 +65,15 @@ export async function resolveModel(
     // No credential to resolve: the child CLI owns its own sign-in. A
     // missing binary surfaces from the spawn with the setup hint.
     const modelId = resolveModelId(overrides.modelId ?? null, provider);
+    const fields = { model: modelId, command: localCli.command };
 
     return {
       provider,
       modelId,
-      model: new ChatKiroCli({ model: modelId, command: localCli.command }),
+      model:
+        provider === "claude-cli"
+          ? new ChatClaudeCli(fields)
+          : new ChatKiroCli(fields),
     };
   }
 
@@ -70,7 +86,13 @@ export async function resolveModel(
   return {
     provider,
     modelId,
-    model: createModel(provider, modelId, apiKey, overrides.maxRetries),
+    model: createModel(
+      provider,
+      modelId,
+      apiKey,
+      overrides.maxRetries,
+      overrides.sessionId ?? createOpencodeSessionId(),
+    ),
   };
 }
 
@@ -144,7 +166,8 @@ function createModel(
   provider: SinscribeProvider,
   modelId: string,
   apiKey: string,
-  maxRetries?: number,
+  maxRetries: number | undefined,
+  sessionId: string,
 ) {
   const retryOptions = maxRetries === undefined ? {} : { maxRetries };
 
@@ -178,11 +201,12 @@ function createModel(
 
   return new ChatOpenAI({
     apiKey,
-    configuration: baseURL
-      ? {
-          baseURL,
-        }
-      : undefined,
+    configuration:
+      provider === "opencode-go"
+        ? { baseURL, defaultHeaders: buildOpencodeGoHeaders(sessionId) }
+        : baseURL
+          ? { baseURL }
+          : undefined,
     model: modelId,
     ...retryOptions,
   });

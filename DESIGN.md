@@ -70,7 +70,7 @@ which is the single copy — a second tree in this file only drifts from it.
   maintained or regularly tested.
   Shared `PROVIDER_CONFIGS` shape, base-URL override env keys, OpenRouter fallback route.
 - `ProviderConfig` is a discriminated union on `authKind`: `"api-key"`
-  (everything but kiro-cli) vs `"local-cli"` (kiro-cli).
+  (everything but the CLIs) vs `"local-cli"` (kiro-cli, claude-cli).
 - **Application gating, and why `local-cli` exists** (learned the hard way,
   2026-07-16): AWS restricts a Q Developer subscription to **approved
   applications**, enforced at request time — a self-registered third-party
@@ -109,6 +109,26 @@ this application"` even with a perfectly correct request and a valid token.
   The config lives under `~/.sinscribe/kiro-agent/` (which is also the
   child's cwd, so discovery is deterministic) and never touches the user's
   own agents in `~/.kiro/agents`.
+- **`claude-cli` provider** (`src/llm/claude-cli/`): the same pattern for
+  Claude Code — `claude -p --output-format stream-json
+--include-partial-messages`, system text as `--system-prompt`, prompt over
+  stdin, answer taken from `text_delta` stream events (the CLI's final
+  `result` event is where sign-in failures arrive, on stdout). Tools are
+  removed with `--tools ""` (availability, not approval). Isolation flags
+  (`--setting-sources ""`, `--strict-mcp-config`, `--disable-slash-commands`,
+  `--exclude-dynamic-system-prompt-sections`) and a neutral cwd keep the
+  user's hooks, MCP servers, skills and CLAUDE.md out: measured 2026-10-03,
+  without them a one-word prompt carried ~133k tokens of the user's
+  environment; with them, ~420. Secret env keys are stripped from the child
+  so a key in `~/.sinscribe/.env` cannot silently replace the user's login.
+- **OpenCode Go request identity** (`src/llm/opencode-go.ts`): since
+  2026-09-06 OpenCode Go answers 400 to requests without `x-opencode-session`
+  ("cannot be routed efficiently"). It is the sticky-routing and prompt-cache
+  key, so it must be stable per conversation: single-shot runs mint one per
+  invocation; the agentic tier passes its LangGraph `thread_id`, which `chat`
+  keeps for the whole conversation. Requests also carry
+  `User-Agent: sinscribe/<version>` and `x-opencode-client: sinscribe`, as the
+  docs ask third-party clients to.
 - **Output cleaning** (`kiro-cli/output.ts`): `kiro-cli chat` is a TUI, not a
   text API — it emits ANSI styling and a `> ` answer marker even under
   `NO_COLOR=1`. The cleaner strips both, incrementally: buffering the whole

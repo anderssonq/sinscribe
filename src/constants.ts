@@ -56,6 +56,7 @@ export const SINSCRIBE_VERSION = readPackageVersion();
 export type SinscribeProvider =
   | "anthropic"
   | "baseten"
+  | "claude-cli"
   | "fireworks"
   | "kiro-cli"
   | "openai"
@@ -98,6 +99,8 @@ type LocalCliProviderConfig = ProviderConfigBase & {
   command: string;
   /** Shown when the binary is missing; names the one-time setup. */
   setupHint: string;
+  /** A one-liner the user can run to check the CLI's own sign-in. */
+  verifyCommand: string;
   /** Tool calling would have to go through the child CLI; not bridged. */
   supportsAgentic: false;
 };
@@ -113,6 +116,7 @@ export const SELECTABLE_PROVIDERS = [
   "openai-compatible",
   "anthropic",
   "kiro-cli",
+  "claude-cli",
 ] as const satisfies readonly SinscribeProvider[];
 
 export const PROVIDER_CONFIGS: Record<SinscribeProvider, ProviderConfig> = {
@@ -203,6 +207,7 @@ export const PROVIDER_CONFIGS: Record<SinscribeProvider, ProviderConfig> = {
     setupHint:
       "Install Kiro CLI (`brew install kiro-cli`, or see " +
       "https://kiro.dev/docs/cli/) and run `kiro-cli login` once.",
+    verifyCommand: 'kiro-cli chat --no-interactive "hi"',
     supportsAgentic: false,
     label: "Amazon Q Developer (Kiro CLI)",
     recommended: true,
@@ -218,6 +223,23 @@ export const PROVIDER_CONFIGS: Record<SinscribeProvider, ProviderConfig> = {
       { id: "glm-5", label: "GLM-5 (0.50x)" },
       { id: "claude-sonnet-4", label: "Claude Sonnet 4 (1.30x)" },
       { id: "claude-sonnet-4.5", label: "Claude Sonnet 4.5 (1.30x)" },
+    ],
+  },
+  "claude-cli": {
+    authKind: "local-cli",
+    command: "claude",
+    setupHint:
+      "Install Claude Code (see https://code.claude.com/docs) and run " +
+      "`claude` once to sign in.",
+    verifyCommand: 'claude -p "hi"',
+    supportsAgentic: false,
+    label: "Claude Code (claude CLI)",
+    // The CLI's own aliases, so the list stays valid as models roll over.
+    modelOptions: [
+      { id: "sonnet", label: "Sonnet — balanced (default)" },
+      { id: "haiku", label: "Haiku — fastest, cheapest" },
+      { id: "opus", label: "Opus — most capable" },
+      { id: "fable", label: "Fable" },
     ],
   },
 };
@@ -275,11 +297,15 @@ export function providerSupportsAgentic(provider: SinscribeProvider): boolean {
 /** The binary a local-cli provider drives, or null for every other kind. */
 export function getProviderCommand(
   provider: SinscribeProvider,
-): { command: string; setupHint: string } | null {
+): { command: string; setupHint: string; verifyCommand: string } | null {
   const config = getProviderConfig(provider);
 
   return config.authKind === "local-cli"
-    ? { command: config.command, setupHint: config.setupHint }
+    ? {
+        command: config.command,
+        setupHint: config.setupHint,
+        verifyCommand: config.verifyCommand,
+      }
     : null;
 }
 

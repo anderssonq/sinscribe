@@ -58,7 +58,8 @@ one-shot command or an interactive chat agent.
 - Node.js >= 20
 - git
 - An API key for a supported provider (OpenCode Go by default — see
-  [Configuration](#configuration)). The `kiro-cli` provider needs no key.
+  [Configuration](#configuration)). The `kiro-cli` and `claude-cli` providers
+  need no key.
 
 ## Install
 
@@ -219,11 +220,11 @@ variables always win over the file, and nothing secret is ever printed.
 
 ```bash
 # ~/.sinscribe/.env (all optional; created by the CLI)
-SINSCRIBE_PROVIDER="opencode-go"    # opencode-go | openrouter | baseten | fireworks | openai | openai-compatible | anthropic | kiro-cli
+SINSCRIBE_PROVIDER="opencode-go"    # opencode-go | openrouter | baseten | fireworks | openai | openai-compatible | anthropic | kiro-cli | claude-cli
 SINSCRIBE_MODEL_ID="kimi-k2.7-code" # default model for the provider
 OPENCODE_API_KEY="..."
 ANTHROPIC_API_KEY="..."             # if you switch to anthropic
-                                    # (kiro-cli needs no key — see below)
+                                    # (kiro-cli / claude-cli need no key — see below)
 SINSCRIBE_TICKET_PATTERN="(T-\d+)"  # optional custom ticket regex
 SINSCRIBE_THEME="ayu-dark"          # TUI color theme (set from the menu's Theme picker)
 SINSCRIBE_REDUCED_MOTION="1"        # freeze the loading animation (the timer keeps counting)
@@ -273,6 +274,7 @@ endpoint (free, no tokens) to verify the key and model before saving.
 | -------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
 | `opencode-go`                                                                    | **Recommended** — the default; supported and regularly tested               |
 | `kiro-cli`                                                                       | **Recommended** — drives AWS's official Kiro CLI; single-shot commands only |
+| `claude-cli`                                                                     | Drives your signed-in Claude Code CLI; single-shot commands only            |
 | `openrouter`, `anthropic`, `openai`, `baseten`, `fireworks`, `openai-compatible` | Selectable — not actively maintained or regularly tested                    |
 
 > [!WARNING]
@@ -280,8 +282,13 @@ endpoint (free, no tokens) to verify the key and model before saving.
 > regularly. The others ship as-is and may lag behind their vendors' API
 > changes — verify one with **Test connection** before relying on it.
 
-Every provider except `kiro-cli` supports the full command set. `kiro-cli` is
-limited to `pr`, `commit`, `branch`, and `prompt`; see below.
+Every provider except `kiro-cli` and `claude-cli` supports the full command
+set. Those two are limited to `pr`, `commit`, `branch`, and `prompt`; see below.
+
+OpenCode Go only routes clients that identify themselves, so every request
+carries `User-Agent: sinscribe/<version>` and an `x-opencode-session` id — one
+per run, and one per conversation in `chat` (see
+[opencode.ai/docs/go](https://opencode.ai/docs/go/#where-can-i-use-it)).
 
 ### Amazon Q Developer setup (`kiro-cli`)
 
@@ -313,6 +320,29 @@ and never touches your own Kiro agents.
 
 **Limitation:** agentic commands (`context`/`docs`/`agents`/`agent-setup`/`chat`) need
 tool calling and exit with a clear message asking you to switch providers.
+
+### Claude Code setup (`claude-cli`)
+
+Use your Claude subscription through the Claude Code CLI you already have:
+
+1. Install **Claude Code** (see [code.claude.com/docs](https://code.claude.com/docs))
+   and run `claude` once to sign in.
+2. Set `SINSCRIBE_PROVIDER=claude-cli`, or pick **Claude Code (claude CLI)** in
+   the TUI's **AI settings**. Nothing is stored: `claude` owns its own sign-in.
+3. Run `pr` / `commit` / `branch` / `prompt` as usual.
+
+Models are the CLI's own aliases: `sonnet` (the default), `haiku`, `opus`,
+`fable` — pick one with `--model-id` or in the settings wizard.
+
+Sinscribe runs `claude -p --output-format stream-json` with **no tools**
+(`--tools ""`) and isolated from your setup — no settings, hooks, MCP servers
+or skills (`--setting-sources ""`, `--strict-mcp-config`,
+`--disable-slash-commands`), from a neutral directory
+(`~/.sinscribe/claude-cli/`) so no repository `CLAUDE.md` applies. Sinscribe's
+template replaces Claude Code's system prompt. API keys from
+`~/.sinscribe/.env` are not passed to the child, so an `ANTHROPIC_API_KEY`
+there never switches it from your login to pay-per-token billing. Agentic
+commands are refused, as with `kiro-cli`.
 
 ### Reliability
 
@@ -393,23 +423,23 @@ are active and how large they are, without sending them anywhere.
 
 ## Troubleshooting
 
-| Message                                                                   | Cause and fix                                                                                                                                    |
-| ------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `Not inside a git repository.`                                            | Every command except `template` needs a repo. `cd` into one.                                                                                     |
-| `Could not detect a target branch (tried origin/HEAD, origin/main, …)`    | No conventional default branch resolved. Pass `--base <ref>`, or save a target in the session context.                                           |
-| `No local changes vs <ref>. Nothing to describe.`                         | The branch matches its base. Commit or edit something, or check that `--base` points where you think.                                            |
-| `No staged changes vs <ref>.`                                             | You passed `--staged` with an empty index. `git add`, or drop the flag.                                                                          |
-| `Nothing staged. Stage changes with git add, or pass --all…`              | `commit` reads the index by default. Use `-a` for all tracked changes.                                                                           |
-| `<KEY> is required to run sinscribe with <Provider>.`                     | No API key for the selected provider. Set it in the environment, in `~/.sinscribe/.env`, or pass `--api-key`.                                    |
-| `Credentials are required for non-interactive runs.`                      | `-p/--print` and non-TTY runs cannot open the setup wizard. Set the key in the environment first.                                                |
-| `The <Provider> provider supports pr/commit/branch/prompt only for now…`  | You asked an agentic command of a provider without tool calling — today that means `kiro-cli`. Switch with `--provider` or `SINSCRIBE_PROVIDER`. |
-| `Template not found: <name>. Available pr templates: …`                   | Typo, or the template is in a tier that is not being read. Check `sinscribe template path` and `sinscribe template list`.                        |
-| `Template <name> is a commit template, not a pr template.`                | A user or project template shadows a built-in of the same name with a different `kind`. Rename one of them.                                      |
-| `Template <name> requires a ticket ID, but none was found…`               | The template has a required `from: branch` slot. Pass `--ticket <id>` or rename the branch.                                                      |
-| `Model did not produce a commit subject.` / invalid JSON                  | The model broke format. `pr` and `branch` retry once automatically; otherwise re-run, or try another model with `--model-id`.                    |
-| `git … timed out after 30s — a credential or GPG prompt may be blocking.` | A git subprocess is waiting on hidden input. Unlock your key, or configure a non-interactive credential helper.                                  |
-| `Model call timed out — …`                                                | No output for 120 s, or 10 minutes total on a single-shot command. Usually a stalled connection; the single-shot path retries on its own.        |
-| `Unknown option for <cmd>: <flag>` (or `Unknown option: <flag>`)          | The flag is not accepted there. `sinscribe --help` lists every command's options; note there is no per-command help.                             |
+| Message                                                                   | Cause and fix                                                                                                                                                    |
+| ------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Not inside a git repository.`                                            | Every command except `template` needs a repo. `cd` into one.                                                                                                     |
+| `Could not detect a target branch (tried origin/HEAD, origin/main, …)`    | No conventional default branch resolved. Pass `--base <ref>`, or save a target in the session context.                                                           |
+| `No local changes vs <ref>. Nothing to describe.`                         | The branch matches its base. Commit or edit something, or check that `--base` points where you think.                                                            |
+| `No staged changes vs <ref>.`                                             | You passed `--staged` with an empty index. `git add`, or drop the flag.                                                                                          |
+| `Nothing staged. Stage changes with git add, or pass --all…`              | `commit` reads the index by default. Use `-a` for all tracked changes.                                                                                           |
+| `<KEY> is required to run sinscribe with <Provider>.`                     | No API key for the selected provider. Set it in the environment, in `~/.sinscribe/.env`, or pass `--api-key`.                                                    |
+| `Credentials are required for non-interactive runs.`                      | `-p/--print` and non-TTY runs cannot open the setup wizard. Set the key in the environment first.                                                                |
+| `The <Provider> provider supports pr/commit/branch/prompt only for now…`  | You asked an agentic command of a provider without tool calling — today that means `kiro-cli` or `claude-cli`. Switch with `--provider` or `SINSCRIBE_PROVIDER`. |
+| `Template not found: <name>. Available pr templates: …`                   | Typo, or the template is in a tier that is not being read. Check `sinscribe template path` and `sinscribe template list`.                                        |
+| `Template <name> is a commit template, not a pr template.`                | A user or project template shadows a built-in of the same name with a different `kind`. Rename one of them.                                                      |
+| `Template <name> requires a ticket ID, but none was found…`               | The template has a required `from: branch` slot. Pass `--ticket <id>` or rename the branch.                                                                      |
+| `Model did not produce a commit subject.` / invalid JSON                  | The model broke format. `pr` and `branch` retry once automatically; otherwise re-run, or try another model with `--model-id`.                                    |
+| `git … timed out after 30s — a credential or GPG prompt may be blocking.` | A git subprocess is waiting on hidden input. Unlock your key, or configure a non-interactive credential helper.                                                  |
+| `Model call timed out — …`                                                | No output for 120 s, or 10 minutes total on a single-shot command. Usually a stalled connection; the single-shot path retries on its own.                        |
+| `Unknown option for <cmd>: <flag>` (or `Unknown option: <flag>`)          | The flag is not accepted there. `sinscribe --help` lists every command's options; note there is no per-command help.                                             |
 
 Two tools worth reaching for first:
 

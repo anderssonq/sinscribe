@@ -40,9 +40,12 @@ describe("testProviderConnection", () => {
     const [url, init] = fetchImpl.mock.calls[0];
 
     expect(url).toBe("https://opencode.ai/zen/go/v1/models");
-    expect((init.headers as Record<string, string>).Authorization).toBe(
-      `Bearer ${API_KEY}`,
-    );
+    const headers = init.headers as Record<string, string>;
+
+    expect(headers.Authorization).toBe(`Bearer ${API_KEY}`);
+    // OpenCode Go rejects requests without these, the probe included.
+    expect(headers["x-opencode-session"]).toMatch(/^ses_/u);
+    expect(headers["User-Agent"]).toMatch(/^sinscribe\//u);
     expect(result).toEqual({ ok: true, modelCount: 2, modelFound: true });
   });
 

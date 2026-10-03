@@ -145,6 +145,34 @@ describe("kiro-cli provider config", () => {
   });
 });
 
+describe("claude-cli provider config", () => {
+  it("drives the user's signed-in claude binary and stores no credential", () => {
+    expect(getProviderAuthKind("claude-cli")).toBe("local-cli");
+    expect(getProviderApiKeyEnvKey("claude-cli")).toBeNull();
+    expect(getProviderCommand("claude-cli")?.command).toBe("claude");
+    expect(getProviderCommand("claude-cli")?.verifyCommand).toMatch(
+      /^claude -p/u,
+    );
+  });
+
+  it("is single-shot only, like kiro-cli", () => {
+    expect(providerSupportsAgentic("claude-cli")).toBe(false);
+  });
+
+  it("defaults to the CLI's sonnet alias and ships only valid ids", () => {
+    expect(getDefaultModelId("claude-cli")).toBe("sonnet");
+
+    for (const option of getProviderModelOptions("claude-cli")) {
+      expect(isValidModelId(option.id)).toBe(true);
+    }
+  });
+
+  it("is a valid, selectable provider", () => {
+    expect(isValidProvider("claude-cli")).toBe(true);
+    expect(SELECTABLE_PROVIDERS).toContain("claude-cli");
+  });
+});
+
 describe("recommended providers", () => {
   // The picker suffixes these with "(Recommended)"; extending the set is a
   // deliberate decision, not a side effect of adding a provider.
@@ -159,7 +187,7 @@ describe("recommended providers", () => {
 describe("legacy provider regression tripwire", () => {
   // Adding kiro-cli must not have changed any existing provider's wiring.
   const expectedApiKeys: Record<
-    Exclude<SinscribeProvider, "kiro-cli">,
+    Exclude<SinscribeProvider, "kiro-cli" | "claude-cli">,
     string
   > = {
     openrouter: "OPENROUTER_API_KEY",

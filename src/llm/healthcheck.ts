@@ -10,6 +10,10 @@ import {
   resolveProviderBaseUrl,
   type SinscribeProvider,
 } from "../constants.js";
+import {
+  buildOpencodeGoHeaders,
+  createOpencodeSessionId,
+} from "./opencode-go.js";
 
 export const ANTHROPIC_DEFAULT_API_URL = "https://api.anthropic.com";
 export const OPENAI_DEFAULT_BASE_URL = "https://api.openai.com/v1";
@@ -48,7 +52,7 @@ function buildRequest(
       error:
         `${getProviderLabel(input.provider)} has no API key to test — the ` +
         `${localCli.command} CLI owns its own sign-in. Verify it with ` +
-        `\`${localCli.command} chat --no-interactive "hi"\`.`,
+        `\`${localCli.verifyCommand}\`.`,
     };
   }
 
@@ -79,7 +83,13 @@ function buildRequest(
 
   return {
     url: `${stripTrailingSlash(base)}/models`,
-    headers: { Authorization: `Bearer ${input.apiKey}` },
+    headers: {
+      Authorization: `Bearer ${input.apiKey}`,
+      // Mirror real traffic, or OpenCode Go rejects the probe itself.
+      ...(input.provider === "opencode-go"
+        ? buildOpencodeGoHeaders(createOpencodeSessionId())
+        : {}),
+    },
   };
 }
 
