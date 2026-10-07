@@ -78,6 +78,7 @@ import {
 import { PrReviewFlow } from "./pr-review.js";
 import { PlanFlow } from "./plan-flow.js";
 import { PromptReviewFlow } from "./prompt-review.js";
+import { SessionDraftFlow } from "./session-draft-review.js";
 import {
   appendEvent,
   Header,
@@ -143,6 +144,9 @@ type SessionDraft = {
   baseRef: string | null;
 };
 
+/** Where the flow continues once a session context is saved. */
+type SessionNext = "menu" | "pr" | "branch" | "prompt" | "plan";
+
 type SettingsDraft = {
   provider: SinscribeProvider;
   modelId: string;
@@ -161,9 +165,12 @@ type MenuView =
       view: "session-input";
       step: "feature" | "ticket" | "requirements" | "base";
       draft: SessionDraft;
-      next: "menu" | "pr" | "branch" | "prompt" | "plan";
+      next: SessionNext;
     }
   | { view: "session-review" }
+  /** AI-drafted or manual? Asked wherever a context is missing. */
+  | { view: "session-choice"; next: SessionNext }
+  | { view: "session-ai"; next: SessionNext }
   | { view: "clear-confirm" }
   | { view: "rules-tier-pick" }
   | { view: "rules-edit"; tier: "user"; initialValue: string }
@@ -391,12 +398,7 @@ export function MenuApp({
             snapshot.branch !== null &&
             snapshot.session?.context == null
           ) {
-            setMode({
-              view: "session-input",
-              step: "feature",
-              draft: { ...EMPTY_DRAFT, baseRef: snapshot.detectedBase },
-              next: "menu",
-            });
+            setMode({ view: "session-choice", next: "menu" });
           }
         })
         .catch((error: unknown) => {
@@ -499,12 +501,7 @@ export function MenuApp({
       return true;
     }
 
-    setMode({
-      view: "session-input",
-      step: "feature",
-      draft: initialDraft(),
-      next,
-    });
+    setMode({ view: "session-choice", next });
 
     return false;
   }
@@ -697,19 +694,12 @@ export function MenuApp({
     }
 
     setSession(null);
-    setMode({
-      view: "session-input",
-      step: "feature",
-      // The session is gone, so seed an empty draft (initialDraft() would still
-      // read the pre-clear session state on this render).
-      draft: { ...EMPTY_DRAFT, baseRef: detectedBase },
-      next: "menu",
-    });
+    setMode({ view: "session-choice", next: "menu" });
   }
 
   async function saveContextAndContinue(
     draft: SessionDraft,
-    next: "menu" | "pr" | "branch" | "prompt" | "plan",
+    next: SessionNext,
   ): Promise<void> {
     if (repoRoot === null || branch === null) {
       return;
@@ -806,6 +796,11 @@ export function MenuApp({
             draft: initialDraft(),
             next: "menu",
           });
+        }
+        return;
+      case "session-ai":
+        if (ensureBranch("Generate session context with AI")) {
+          setMode({ view: "session-ai", next: "menu" });
         }
         return;
       case "clear":
@@ -1092,6 +1087,8 @@ export function MenuApp({
       active={
         mode.view === "menu" ||
         mode.view === "clear-confirm" ||
+        mode.view === "session-choice" ||
+        mode.view === "session-ai" ||
         mode.view === "rules-tier-pick" ||
         mode.view === "template-pick" ||
         mode.view === "theme-pick" ||
@@ -1118,18 +1115,20 @@ export function MenuApp({
               ? `${mode.label}...`
               : mode.view === "pr-review" || mode.view === "prompt-review"
                 ? `${mode.label} — review before approving`
-                : mode.view === "plan-flow"
-                  ? "Spec plan (SDD)"
-                  : mode.view === "docs-run"
-                    ? "Generate documentation — agent activity"
-                    : mode.view === "agent-setup-run"
-                      ? "Set up project agents — analyze, answer, generate"
-                      : mode.view === "help"
-                        ? "Help — scroll with ↑/↓ or the wheel, esc to return"
-                        : mode.view === "clear-confirm"
-                          ? "Clear session context — this cannot be undone"
-                          : // Menu view: no subtitle — the header lines carry it.
-                            undefined
+                : mode.view === "session-ai"
+                  ? "Session context with AI — you give the direction, then review"
+                  : mode.view === "plan-flow"
+                    ? "Spec plan (SDD)"
+                    : mode.view === "docs-run"
+                      ? "Generate documentation — agent activity"
+                      : mode.view === "agent-setup-run"
+                        ? "Set up project agents — analyze, answer, generate"
+                        : mode.view === "help"
+                          ? "Help — scroll with ↑/↓ or the wheel, esc to return"
+                          : mode.view === "clear-confirm"
+                            ? "Clear session context — this cannot be undone"
+                            : // Menu view: no subtitle — the header lines carry it.
+                              undefined
           }
         />
         {mode.view === "menu" ? (
@@ -1213,6 +1212,74 @@ export function MenuApp({
               />
             ) : null}
           </Box>
+        ) : null}
+        {mode.view === "session-choice" ? (
+          <SelectList
+            isActive
+            items={[
+              {
+                id: "ai",
+                label: "Generate it with AI",
+                hint: "recommended — you give the direction, the AI drafts it from the code and docs, you approve",
+              },
+              {
+                id: "manual",
+                label: "Write it manually",
+                hint: "feature, ticket, requirements and target, step by step",
+              },
+              {
+                id: "later",
+                label: "Not now",
+                hint: "back to the menu — nothing is saved",
+              },
+            ]}
+            onCancel={goToMenu}
+            onSelect={(id) => {
+              if (id === "ai") {
+                setMode({ view: "session-ai", next: mode.next });
+              } else if (id === "manual") {
+                setMode({
+                  view: "session-input",
+                  step: "feature",
+                  draft: initialDraft(),
+                  next: mode.next,
+                });
+              } else {
+                goToMenu();
+              }
+            }}
+            title={`No session context for ${branch ?? "this branch"} yet — how do you want to create it?`}
+          />
+        ) : null}
+        {mode.view === "session-ai" ? (
+          <SessionDraftFlow
+            flags={flags}
+            isActive
+            onDone={(outcome) => {
+              if (outcome.status === "approved") {
+                void saveContextAndContinue(
+                  {
+                    ...outcome.context,
+                    baseRef: outcome.context.baseRef ?? null,
+                  },
+                  mode.next,
+                );
+              } else if (outcome.status === "edit") {
+                setMode({
+                  view: "session-input",
+                  step: "feature",
+                  draft: {
+                    ...outcome.context,
+                    baseRef: outcome.context.baseRef ?? detectedBase,
+                  },
+                  next: mode.next,
+                });
+              } else {
+                goToMenu();
+              }
+            }}
+            previous={session?.context ?? null}
+          />
         ) : null}
         {mode.view === "rules-tier-pick" ? (
           <SelectList

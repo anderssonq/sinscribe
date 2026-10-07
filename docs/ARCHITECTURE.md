@@ -54,6 +54,7 @@ Each module owns its git reads, its prompt assembly, and its choice of runner.
 | `handoff.ts`                                                              | `HANDOFF.md` generate/save cycle.                                                                                                          |
 | `plan.ts`                                                                 | Spec plan I/O: `loadPlanContext()`, `readPlan()` snapshot, `createStageRun()`, offline `approveStage()`/`syncPlan()`, dry run, print path. |
 | `plan-docs.ts`                                                            | Spec plan pure core: framing, hashing and staleness, `REQ`/`AC`/`T` parsers, coverage, progress, handoff zones, `LOOP_PROMPT.md`.          |
+| `session-draft.ts`                                                        | AI-drafted session context: `createSessionDraftRun()` (direction → explore → JSON draft → feedback rounds), `toSessionContext()`.          |
 | `repo-brief.ts`                                                           | Bounded repository orientation (tracked files, scripts, root rule docs) for single-shot spec stages.                                       |
 | `template.ts`                                                             | `list`/`show`/`add`/`edit`/`path`. The only command needing neither model nor credentials.                                                 |
 | `rules.ts`                                                                | Two-tier free-text rules appended to every system prompt.                                                                                  |
@@ -97,7 +98,7 @@ generated documents.
 
 Three Ink roots: `run-app.tsx` (one command, streaming), `menu-app.tsx` (the
 alt-screen dashboard), `chat-app.tsx` (multi-turn chat). Review flows
-(`pr-review`, `prompt-review`, `docs-review`, `handoff-review`, `agent-setup`)
+(`pr-review`, `prompt-review`, `docs-review`, `handoff-review`, `session-draft-review`, `agent-setup`)
 drive a generate/refine/approve loop. `doc-review.tsx` is the generic version of
 that loop (`DocReviewFlow`), used by `plan-flow.tsx` for each spec plan stage. Shared rendering lives in `run-view.tsx`
 and `menu-view.tsx`; terminal and input infrastructure in `theme.ts`, `term.ts`,
@@ -169,8 +170,9 @@ export type BranchSession = {
 };
 ```
 
-`context` is the business context you typed (feature, ticket, requirements,
-target branch); `pr` is the last approved description. `version` is present so a
+`context` is the business context (feature, ticket, requirements, target
+branch), typed in the form or drafted by the AI from your direction and
+approved by you; `pr` is the last approved description. `version` is present so a
 future format change can be detected rather than guessed at.
 
 ### `ResolvedModel`
@@ -212,9 +214,9 @@ whose whole job is to explore a repository the CLI cannot summarise in advance.
 ### Tier 3 — read-only explore (`src/llm/explore.ts`)
 
 The model may **read** the repository before answering, and nothing else: one
-final markdown document comes back, exactly as from tier 1. Used only by the
-`plan` requirements and design stages, which are worth grounding in the code
-but must never act on it.
+final document comes back, exactly as from tier 1. Used by the `plan`
+requirements and design stages and by the AI session-context draft — all
+worth grounding in the code, none allowed to act on it.
 
 - `claude-cli`: `claude -p --restricted --tools Read,Glob,Grep` with cwd at the
   repo root. `--restricted` confines the file tools to the working directory
@@ -224,8 +226,14 @@ but must never act on it.
 - API-key providers: `createDeepAgent` on a `FilesystemBackend` (not a sandbox,
   so no `execute` tool) with `permissions` denying every write and the same
   secret globs. Subagents inherit the permissions.
-- Everything else — `kiro-cli` until its read-only agent is verified,
-  `--no-explore`, a claude CLI too old for `--restricted` — is single-shot with
+- `kiro-cli`: `kiro-cli chat --no-interactive --agent sinscribe-readonly`
+  from a fresh per-run directory holding that agent: `fs_read` is its only
+  tool and is deliberately untrusted, so `toolsSettings.fs_read.allowedPaths`
+  (the repo) is the only approval and `deniedPaths` refuses the same secret
+  globs. Files read come from Kiro's "✓ Successfully read … from" lines; the
+  answer is the first `> ` message after the last tool line.
+- Everything else — `--no-explore`, a claude CLI too old for `--restricted` —
+  is single-shot with
   a `repo-brief.ts` orientation appended. Only that missing capability
   degrades silently; auth errors and timeouts surface.
 
@@ -237,21 +245,22 @@ the overall deadline is `EXPLORE_TOTAL_MS` (15 minutes).
 **Per domain module, not by a central predicate.** `executeCommand`'s switch
 routes to a domain function, and that function calls its runner:
 
-| Command              | Runner          | Call site                                      |
-| -------------------- | --------------- | ---------------------------------------------- |
-| `pr`                 | `runSingleShot` | `src/domain/pr.ts`                             |
-| `prompt`             | `runSingleShot` | `src/domain/prompt.ts`                         |
-| `commit`             | `runSingleShot` | `src/domain/commit.ts`                         |
-| `branch`             | `runSingleShot` | `src/domain/branch.ts`                         |
-| `handoff` (sub-flow) | `runSingleShot` | `src/domain/handoff.ts`                        |
-| `plan` req./design   | `runExplore`    | `src/domain/plan.ts`                           |
-| `plan` tasks/handoff | `runSingleShot` | `src/domain/plan.ts` (via `runExplore`/direct) |
-| `context`            | `runAgent`      | `src/domain/context.ts`                        |
-| `docs`               | `runAgent`      | `src/domain/docs.ts`                           |
-| `agents`             | `runAgent`      | `src/domain/agents.ts`                         |
-| `agent-setup`        | `runAgent` ×2   | `src/domain/agent-setup.ts`                    |
-| `chat`               | `runAgent`      | `src/domain/execute.ts`, inline in the switch  |
-| `template`           | none            | `src/domain/template.ts`                       |
+| Command              | Runner          | Call site                                                                            |
+| -------------------- | --------------- | ------------------------------------------------------------------------------------ |
+| `pr`                 | `runSingleShot` | `src/domain/pr.ts`                                                                   |
+| `prompt`             | `runSingleShot` | `src/domain/prompt.ts`                                                               |
+| `commit`             | `runSingleShot` | `src/domain/commit.ts`                                                               |
+| `branch`             | `runSingleShot` | `src/domain/branch.ts`                                                               |
+| `handoff` (sub-flow) | `runSingleShot` | `src/domain/handoff.ts`                                                              |
+| `plan` req./design   | `runExplore`    | `src/domain/plan.ts`                                                                 |
+| `plan` tasks/handoff | `runSingleShot` | `src/domain/plan.ts` (via `runExplore`/direct)                                       |
+| session draft        | `runExplore`    | `src/domain/session-draft.ts` (feedback rounds and the JSON repair: `runSingleShot`) |
+| `context`            | `runAgent`      | `src/domain/context.ts`                                                              |
+| `docs`               | `runAgent`      | `src/domain/docs.ts`                                                                 |
+| `agents`             | `runAgent`      | `src/domain/agents.ts`                                                               |
+| `agent-setup`        | `runAgent` ×2   | `src/domain/agent-setup.ts`                                                          |
+| `chat`               | `runAgent`      | `src/domain/execute.ts`, inline in the switch                                        |
+| `template`           | none            | `src/domain/template.ts`                                                             |
 
 The two exported predicates in `execute.ts` are **not** the tier selector, and
 misreading them is the easiest mistake to make here:

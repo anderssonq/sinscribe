@@ -274,3 +274,33 @@ describe("buildMenuDetail", () => {
     expect(detail[3].value).toBe("+1 -0 (1 file)");
   });
 });
+
+describe("AI session context item", () => {
+  const aiItem = (session: ReturnType<typeof makeSession> | null) =>
+    buildMenuItems({ session, branch: "feature/x", targetBase: "main" }).find(
+      (item) => item.id === "session-ai",
+    );
+
+  it("sits in GIT right after the manual session item", () => {
+    const ids = MENU_ITEMS.map((item) => item.id);
+
+    expect(ids.indexOf("session-ai")).toBe(ids.indexOf("session") + 1);
+    expect(MENU_ITEMS.find((item) => item.id === "session-ai")?.section).toBe(
+      "GIT",
+    );
+  });
+
+  it("offers to generate when the branch has no context", () => {
+    expect(aiItem(null)).toMatchObject({
+      label: "Generate session context with AI",
+    });
+    expect(aiItem(null)?.done).toBeFalsy();
+  });
+
+  it("offers to regenerate once a context is saved", () => {
+    expect(aiItem(makeSession())).toMatchObject({
+      label: "Regenerate session context with AI",
+      done: true,
+    });
+  });
+});

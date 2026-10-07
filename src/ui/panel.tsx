@@ -105,3 +105,36 @@ export function TailPanel({
     </Panel>
   );
 }
+
+/**
+ * TailPanel's counterpart for documents read from the top — a draft whose
+ * first lines matter most. Clamped over visual rows for the same reason.
+ */
+export function HeadPanel({
+  text,
+  maxRows,
+  hiddenHint = "",
+  title,
+  width,
+}: TailPanelProps) {
+  const { contentColumns } = useViewport();
+  const textWidth = Math.max(20, (width ?? contentColumns) - 4);
+  const rows = wrapLines(text, textWidth);
+  const lines = rows.slice(0, Math.max(1, maxRows));
+  const hidden = rows.length - lines.length;
+
+  return (
+    <Panel title={title} width={width}>
+      {lines.map((line, index) => (
+        <Text key={index} wrap="truncate-end">
+          {line.length > 0 ? line : " "}
+        </Text>
+      ))}
+      {hidden > 0 ? (
+        <Text color={theme.dim} wrap="truncate-end">
+          … {hidden} more row{hidden === 1 ? "" : "s"} below{hiddenHint}
+        </Text>
+      ) : null}
+    </Panel>
+  );
+}

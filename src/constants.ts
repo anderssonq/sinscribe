@@ -113,7 +113,7 @@ type LocalCliProviderConfig = ProviderConfigBase & {
    * child with read-only tools (see src/llm/claude-cli/explore.ts); "none"
    * means single-shot with an enriched context only.
    */
-  exploreKind: "claude-cli" | "none";
+  exploreKind: "claude-cli" | "kiro-cli" | "none";
 };
 
 type ProviderConfig = ApiKeyProviderConfig | LocalCliProviderConfig;
@@ -220,9 +220,9 @@ export const PROVIDER_CONFIGS: Record<SinscribeProvider, ProviderConfig> = {
       "https://kiro.dev/docs/cli/) and run `kiro-cli login` once.",
     verifyCommand: 'kiro-cli chat --no-interactive "hi"',
     supportsAgentic: false,
-    // Until a read-only Kiro agent is verified (path limits, no repo-local
-    // agent shadowing), plan stays single-shot here.
-    exploreKind: "none",
+    // A per-run fs_read-only agent confined to the repository (see
+    // src/llm/kiro-cli/explore.ts for what was verified).
+    exploreKind: "kiro-cli",
     label: "Amazon Q Developer (Kiro CLI)",
     recommended: true,
     // Straight from `kiro-cli chat --list-models` (kiro-cli 2.3.0); the
@@ -314,12 +314,13 @@ export function providerSupportsAgentic(provider: SinscribeProvider): boolean {
 }
 
 /**
- * How the read-only explore tier (spec plan requirements/design) reads the
- * repository with this provider: through the claude CLI's own read-only
- * tools, through a deepagents FilesystemBackend with write-deny permissions
- * ("agent"), or not at all ("none" — single-shot with an enriched context).
+ * How the read-only explore tier (spec plan requirements/design, the AI
+ * session-context draft) reads the repository with this provider: through
+ * the claude CLI's own read-only tools, through a deepagents
+ * FilesystemBackend with write-deny permissions ("agent"), or not at all
+ * ("none" — single-shot with an enriched context).
  */
-export type ExploreKind = "claude-cli" | "agent" | "none";
+export type ExploreKind = "claude-cli" | "kiro-cli" | "agent" | "none";
 
 export function providerExploreKind(provider: SinscribeProvider): ExploreKind {
   const config = getProviderConfig(provider);

@@ -5,6 +5,7 @@ import type { BranchSession } from "../session/store.js";
 export type MenuChoice =
   | "chat"
   | "session"
+  | "session-ai"
   | "clear"
   | "pr"
   | "prompt"
@@ -47,6 +48,12 @@ export const MENU_ITEMS: MenuItem[] = [
     id: "session",
     label: "Create session context",
     hint: "Capture feature context for the current branch",
+    section: "GIT",
+  },
+  {
+    id: "session-ai",
+    label: "Generate session context with AI",
+    hint: "You give the direction; the AI reads the code and docs (read-only) and drafts it for review",
     section: "GIT",
   },
   {
@@ -185,6 +192,15 @@ export function buildMenuItems(input: {
     switch (item.id) {
       case "session":
         return { ...item, done: Boolean(input.session?.context) };
+      case "session-ai":
+        return input.session?.context
+          ? {
+              ...item,
+              done: true,
+              label: "Regenerate session context with AI",
+              hint: "Revise the saved context from a new direction, the code and docs — reviewed before it replaces anything",
+            }
+          : item;
       case "clear":
         // Nothing to clear until a context exists: dim + inert (the dim color
         // takes precedence over the red danger tint while disabled).

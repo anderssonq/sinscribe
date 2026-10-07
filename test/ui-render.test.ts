@@ -16,7 +16,7 @@ import {
   MultilinePrompt,
   MultiSelectList,
 } from "../src/ui/menu-view.js";
-import { Panel, TailPanel } from "../src/ui/panel.js";
+import { HeadPanel, Panel, TailPanel } from "../src/ui/panel.js";
 import { PlanFlow } from "../src/ui/plan-flow.js";
 import type { RunCallbacks } from "../src/llm/events.js";
 import { RunLog, type LogItem } from "../src/ui/run-view.js";
@@ -462,6 +462,22 @@ describe("UI at extreme terminal sizes", () => {
     // 6 text rows + the hidden-count note + two borders.
     expect(tallestFrameRows(frames)).toBeLessThanOrEqual(9);
     expect(fullestFrame(frames)).toContain("more rows above");
+  });
+
+  it("HeadPanel keeps the top of a long draft and counts what is below", async () => {
+    const paragraph = "word ".repeat(200).trim();
+    const frames = await renderOnce(
+      createElement(HeadPanel, {
+        text: `Feature first\n${paragraph}\n${paragraph}`,
+        maxRows: 6,
+      }),
+      80,
+      24,
+    );
+
+    expect(tallestFrameRows(frames)).toBeLessThanOrEqual(9);
+    expect(fullestFrame(frames)).toContain("Feature first");
+    expect(fullestFrame(frames)).toContain("more rows below");
   });
 
   for (const [columns, rows] of menuSizes) {
