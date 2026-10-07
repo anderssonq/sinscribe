@@ -293,7 +293,7 @@ SINSCRIBE_REDUCED_MOTION="1"        # freeze the loading animation (the timer ke
 | Variable                     | Purpose                                                                        | Default                           |
 | ---------------------------- | ------------------------------------------------------------------------------ | --------------------------------- |
 | `SINSCRIBE_PROVIDER`         | Which provider to use                                                          | `opencode-go`                     |
-| `SINSCRIBE_MODEL_ID`         | Model for all runs                                                             | the provider's first listed model |
+| `SINSCRIBE_MODEL_ID`         | Model for `SINSCRIBE_PROVIDER` (a `--provider` override uses its own default)  | the provider's first listed model |
 | `SINSCRIBE_TICKET_PATTERN`   | Custom ticket regex; the first capture group is used                           | `ABC-123`, then `#123`            |
 | `SINSCRIBE_THEME`            | Persisted TUI color scheme                                                     | shipped default                   |
 | `SINSCRIBE_REDUCED_MOTION`   | `1` or `true` renders a static spinner frame; the elapsed timer keeps counting | off                               |
@@ -362,7 +362,9 @@ Use the Amazon Q subscription you already have, through AWS's own CLI:
 
 Pick a model with `--model-id` or in the settings wizard; the labels carry
 each model's credit multiplier, e.g. `qwen3-coder-next` (0.05x) up to
-`claude-sonnet-4.5` (1.30x). `auto` (the default) lets Kiro choose.
+`claude-sonnet-4.5` (1.30x). `auto` (the default) lets Kiro choose. For a model
+the list doesn't have yet, choose **Custom model ID…** and type any id from
+`kiro-cli chat --list-models`; it is passed straight through as `--model`.
 
 **Why a subprocess and not the API?** AWS restricts Q subscriptions to
 _approved applications_, so Sinscribe drives the official client rather than
@@ -390,7 +392,9 @@ Use your Claude subscription through the Claude Code CLI you already have:
 3. Run `pr` / `commit` / `branch` / `prompt` as usual.
 
 Models are the CLI's own aliases: `sonnet` (the default), `haiku`, `opus`,
-`fable` — pick one with `--model-id` or in the settings wizard.
+`fable` — pick one with `--model-id` or in the settings wizard. To pin an exact
+model, choose **Custom model ID…** and type its full name (e.g.
+`claude-opus-5-5`); anything `claude --model` accepts works.
 
 Sinscribe runs `claude -p --output-format stream-json` with **no tools**
 (`--tools ""`) and isolated from your setup — no settings, hooks, MCP servers

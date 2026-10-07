@@ -147,10 +147,13 @@ export function resolveModelId(
   override: string | null,
   provider: SinscribeProvider,
 ): string {
-  const rawModelId =
-    override ??
-    process.env[SINSCRIBE_MODEL_ID_ENV_KEY] ??
-    getDefaultModelId(provider);
+  // The saved model id belongs to the saved provider. A one-off --provider
+  // for a different one must not inherit it (e.g. glm-5.2 sent to kiro-cli).
+  const savedModelId =
+    resolveConfiguredProvider() === provider
+      ? process.env[SINSCRIBE_MODEL_ID_ENV_KEY]
+      : undefined;
+  const rawModelId = override ?? savedModelId ?? getDefaultModelId(provider);
   const modelId = normalizeModelId(rawModelId);
 
   if (!isValidModelId(modelId)) {
