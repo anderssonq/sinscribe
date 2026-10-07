@@ -2,7 +2,7 @@ import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
 import { createElement } from "react";
 import { render } from "ink";
-import { describe, expect, it, vi } from "vitest";
+import { afterAll, describe, expect, it, vi } from "vitest";
 import type { GlobalFlags } from "../src/commands.js";
 import type {
   SessionDraft,
@@ -12,6 +12,28 @@ import {
   SessionDraftFlow,
   type SessionDraftOutcome,
 } from "../src/ui/session-draft-review.js";
+
+/**
+ * Ink checks `CI` once, when it is imported, and in CI it writes no frames
+ * until unmount. This flow is driven screen by screen, so it needs the
+ * interactive renderer: turn the detection off before ink loads, and put the
+ * variable back for whatever runs next in this worker.
+ */
+const originalCi = vi.hoisted(() => {
+  const value = process.env.CI;
+
+  process.env.CI = "false";
+
+  return value;
+});
+
+afterAll(() => {
+  if (originalCi === undefined) {
+    delete process.env.CI;
+  } else {
+    process.env.CI = originalCi;
+  }
+});
 
 const requests = vi.hoisted(() => [] as SessionDraftRequest[]);
 
