@@ -55,7 +55,7 @@ export function inferPromptKind(description: string): PromptKind {
     : "feature";
 }
 
-type PromptContext = {
+export type PromptContext = {
   repoRoot: string | null;
   branch: string;
   /**
@@ -74,7 +74,7 @@ type PromptContext = {
   handoff: ParsedHandoff | null;
 };
 
-async function gatherPromptContext(cwd: string): Promise<PromptContext> {
+export async function gatherPromptContext(cwd: string): Promise<PromptContext> {
   await ensureGitRepo(cwd);
 
   const repoRoot = await getRepoRoot(cwd);
@@ -155,7 +155,7 @@ export function resolvePromptDescription(
  * background, so it is labeled rather than dropped — the model can then weigh
  * it instead of taking it for the current state.
  */
-function describeHandoff(
+export function describeHandoff(
   handoff: ParsedHandoff | null,
   branch: string,
 ): string | null {

@@ -13,6 +13,8 @@
 export const LLM_INACTIVITY_MS = 120_000;
 /** Overall deadline for single-shot calls; agent loops legitimately run longer. */
 export const SINGLE_SHOT_TOTAL_MS = 600_000;
+/** Overall deadline for a read-only repository exploration (spec plan). */
+export const EXPLORE_TOTAL_MS = 900_000;
 
 /**
  * Thrown when a model call produces no output for too long. `name` is

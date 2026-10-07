@@ -4,8 +4,10 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   ensureGitRepo,
   getCurrentBranch,
+  getRangeSubjects,
   getRepoRoot,
   isGitRepo,
+  isPathIgnored,
   NotAGitRepositoryError,
   resolveBaseRef,
 } from "../src/git/repo.js";
@@ -120,3 +122,42 @@ async function initRepoContents(cwd: string): Promise<void> {
   await git(cwd, "add", ".");
   await git(cwd, "commit", "-m", "init");
 }
+
+describe("plan helpers", () => {
+  let dir: string;
+
+  beforeEach(async () => {
+    dir = await makeTempDir("sinscribe-repo-plan-");
+    await initRepo(dir);
+  });
+
+  afterEach(async () => {
+    await removeDir(dir);
+  });
+
+  it("isPathIgnored reflects .gitignore", async () => {
+    await writeFile(path.join(dir, ".gitignore"), "secret/\n");
+
+    expect(await isPathIgnored(dir, "secret/a.md")).toBe(true);
+    expect(await isPathIgnored(dir, "specs/feat/index.md")).toBe(false);
+  });
+
+  it("getRangeSubjects lists commits since the base, newest first", async () => {
+    await git(dir, "checkout", "-b", "feat/x");
+    await writeFile(path.join(dir, "a.txt"), "a\n");
+    await git(dir, "add", ".");
+    await git(dir, "commit", "-m", "feat: a [T-1]");
+    await writeFile(path.join(dir, "b.txt"), "b\n");
+    await git(dir, "add", ".");
+    await git(dir, "commit", "-m", "feat: b\tx [T-2]");
+
+    const subjects = await getRangeSubjects(dir, "main");
+
+    expect(subjects.map((entry) => entry.subject)).toEqual([
+      "feat: b\tx [T-2]",
+      "feat: a [T-1]",
+    ]);
+    expect(subjects[0].sha).toMatch(/^[0-9a-f]{7,}$/u);
+    expect(await getRangeSubjects(dir, "no-such-ref")).toEqual([]);
+  });
+});

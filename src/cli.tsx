@@ -183,7 +183,7 @@ async function main(): Promise<void> {
   if (command.flags.dryRun) {
     try {
       process.stdout.write(
-        `${await executeDryRun(command.command, process.cwd())}\n`,
+        `${await executeDryRun(command.command, process.cwd(), command.flags)}\n`,
       );
       process.exitCode = 0;
     } catch (error) {
@@ -305,7 +305,13 @@ async function main(): Promise<void> {
   );
 
   if (fullDocument.current !== null) {
-    process.stdout.write(`--- full document ---\n${fullDocument.current}\n`);
+    // plan hands back a short summary (its documents are on disk), not a
+    // clamped document — no "full document" banner for it.
+    process.stdout.write(
+      command.command.name === "plan"
+        ? `${fullDocument.current}\n`
+        : `--- full document ---\n${fullDocument.current}\n`,
+    );
   }
 }
 

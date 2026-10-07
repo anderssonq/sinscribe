@@ -4,6 +4,7 @@ import {
   normalizeProvider,
   type SinscribeProvider,
 } from "./constants.js";
+import { isPlanStage, type PlanStageId } from "./domain/plan-docs.js";
 import { isBranchType, type BranchType } from "./git/ticket.js";
 
 export type GlobalFlags = {
@@ -32,6 +33,17 @@ export type CommandSpec =
       /** Write HANDOFF.md without asking — the only route in print mode. */
       handoff: boolean;
     }
+  | {
+      name: "plan";
+      /** Null: the next stage that needs work. */
+      stage: PlanStageId | null;
+      /** generate is model-backed; the rest are offline and deterministic. */
+      action: "generate" | "approve" | "sync" | "loop-prompt";
+      /** False forces single-shot even when the provider could explore. */
+      explore: boolean;
+      /** Revise the on-disk version with this feedback (generate only). */
+      feedback: string | null;
+    }
   | { name: "commit"; all: boolean; scope: string | null; gitmoji: boolean }
   | { name: "branch"; input: string; type: BranchType | null }
   | { name: "context"; out: string | null; format: "md" | "json" }
@@ -58,6 +70,7 @@ export type CliCommand =
 const SUBCOMMANDS = [
   "pr",
   "prompt",
+  "plan",
   "commit",
   "branch",
   "context",
@@ -232,6 +245,8 @@ function parseSubcommand(
       return parsePr(args);
     case "prompt":
       return parsePrompt(args);
+    case "plan":
+      return parsePlan(args);
     case "commit":
       return parseCommit(args);
     case "branch":
@@ -616,6 +631,78 @@ function parseTemplate(
   return { name: "template", action, templateName, from };
 }
 
+function parsePlan(
+  args: string[],
+): CommandSpec | Extract<CliCommand, { kind: "error" }> {
+  let stage: PlanStageId | null = null;
+  let feedback: string | null = null;
+  let explore = true;
+  const actions: ("approve" | "sync" | "loop-prompt")[] = [];
+
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+
+    if (arg === "--stage") {
+      const taken = takeValue(args, index);
+
+      if (taken === null || !isPlanStage(taken)) {
+        return error("--stage must be requirements, design, tasks or handoff.");
+      }
+
+      stage = taken;
+      index += 1;
+      continue;
+    }
+
+    if (arg === "--feedback") {
+      const taken = takeValue(args, index);
+
+      if (taken === null || taken.trim().length === 0) {
+        return error("--feedback requires the feedback text.");
+      }
+
+      feedback = taken;
+      index += 1;
+      continue;
+    }
+
+    if (arg === "--no-explore") {
+      explore = false;
+      continue;
+    }
+
+    if (arg === "--approve" || arg === "--sync" || arg === "--loop-prompt") {
+      actions.push(
+        arg === "--approve"
+          ? "approve"
+          : arg === "--sync"
+            ? "sync"
+            : "loop-prompt",
+      );
+      continue;
+    }
+
+    return error(`Unknown option for plan: ${arg}`);
+  }
+
+  if (actions.length > 1) {
+    return error("--approve, --sync and --loop-prompt are mutually exclusive.");
+  }
+
+  const action: "generate" | (typeof actions)[number] =
+    actions.length > 0 ? actions[0] : "generate";
+
+  if (feedback !== null && action !== "generate") {
+    return error("--feedback only applies when generating a stage.");
+  }
+
+  if (stage !== null && (action === "sync" || action === "loop-prompt")) {
+    return error(`--stage does not apply to --${action}.`);
+  }
+
+  return { name: "plan", stage, action, explore, feedback };
+}
+
 function takeValue(args: string[], index: number): string | null {
   const next = args[index + 1];
 
@@ -649,6 +736,9 @@ Usage
                                            (interactive runs review the draft, then optionally export
                                            AGENT_PROMPT.md and/or copy to the clipboard, and update HANDOFF.md;
                                            without a description, the saved session context is used)
+  sinscribe plan [options]                 Spec plan (SDD): requirements → design → tasks → handoff in
+                                           specs/<branch>/, each reviewed and approved in turn, plus a
+                                           LOOP_PROMPT.md that drives a coding agent task by task
   sinscribe commit [options]               Generate a commit message from staged changes
   sinscribe branch <ticket|description>    Suggest branch names
   sinscribe context [options]              Extract a structured project-context brief
@@ -669,6 +759,13 @@ Command options
             --out <file>        Write the prompt to a file
             --handoff           Also write HANDOFF.md, the branch's session handoff
                                 (interactive runs offer this after approval)
+  plan      --stage <stage>     requirements|design|tasks|handoff (default: the next stage needing work)
+            --feedback <text>   Revise the stage's current version with this feedback
+            --no-explore        Do not let the model read the repository (single-shot)
+            --approve           Approve the stage's saved draft (offline; no model call)
+            --sync              Match [T-n] commits and checkboxes; refresh progress (offline)
+            --loop-prompt       Print LOOP_PROMPT.md, e.g. to pipe into a coding agent
+                                (-p/--print writes drafts only; approve them with --approve)
   commit    --all, -a           Use all tracked changes, not only staged
             --scope <scope>     Force the conventional-commit scope
             --no-gitmoji        Skip the gitmoji prefix
@@ -703,6 +800,10 @@ Examples
   sinscribe branch ABC-123 add retry logic to uploader
   sinscribe prompt --type bugfix uploader crashes on empty files
   sinscribe prompt --handoff -p "add retry logic to the uploader"
+  sinscribe plan
+  sinscribe plan -p --stage design --feedback "use the existing queue module"
+  sinscribe plan --approve --stage design
+  sinscribe plan --sync
   sinscribe context --out CONTEXT.md
   sinscribe docs
   sinscribe agents --target claude

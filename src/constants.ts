@@ -103,6 +103,12 @@ type LocalCliProviderConfig = ProviderConfigBase & {
   verifyCommand: string;
   /** Tool calling would have to go through the child CLI; not bridged. */
   supportsAgentic: false;
+  /**
+   * How `plan` may let this CLI read the repository: "claude-cli" runs the
+   * child with read-only tools (see src/llm/claude-cli/explore.ts); "none"
+   * means single-shot with an enriched context only.
+   */
+  exploreKind: "claude-cli" | "none";
 };
 
 type ProviderConfig = ApiKeyProviderConfig | LocalCliProviderConfig;
@@ -209,6 +215,9 @@ export const PROVIDER_CONFIGS: Record<SinscribeProvider, ProviderConfig> = {
       "https://kiro.dev/docs/cli/) and run `kiro-cli login` once.",
     verifyCommand: 'kiro-cli chat --no-interactive "hi"',
     supportsAgentic: false,
+    // Until a read-only Kiro agent is verified (path limits, no repo-local
+    // agent shadowing), plan stays single-shot here.
+    exploreKind: "none",
     label: "Amazon Q Developer (Kiro CLI)",
     recommended: true,
     // Straight from `kiro-cli chat --list-models`; the multiplier is the
@@ -233,6 +242,7 @@ export const PROVIDER_CONFIGS: Record<SinscribeProvider, ProviderConfig> = {
       "`claude` once to sign in.",
     verifyCommand: 'claude -p "hi"',
     supportsAgentic: false,
+    exploreKind: "claude-cli",
     label: "Claude Code (claude CLI)",
     // The CLI's own aliases, so the list stays valid as models roll over.
     modelOptions: [
@@ -292,6 +302,20 @@ export function providerSupportsAgentic(provider: SinscribeProvider): boolean {
   const config = getProviderConfig(provider);
 
   return config.authKind === "api-key" ? true : config.supportsAgentic;
+}
+
+/**
+ * How the read-only explore tier (spec plan requirements/design) reads the
+ * repository with this provider: through the claude CLI's own read-only
+ * tools, through a deepagents FilesystemBackend with write-deny permissions
+ * ("agent"), or not at all ("none" — single-shot with an enriched context).
+ */
+export type ExploreKind = "claude-cli" | "agent" | "none";
+
+export function providerExploreKind(provider: SinscribeProvider): ExploreKind {
+  const config = getProviderConfig(provider);
+
+  return config.authKind === "api-key" ? "agent" : config.exploreKind;
 }
 
 /** The binary a local-cli provider drives, or null for every other kind. */

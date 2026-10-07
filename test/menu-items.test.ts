@@ -189,6 +189,46 @@ describe("buildMenuItems", () => {
   });
 });
 
+describe("spec plan item", () => {
+  const base = { session: null, branch: "feature/x", targetBase: "main" };
+  const planItem = (plan: Parameters<typeof buildMenuItems>[0]["plan"]) =>
+    buildMenuItems({ ...base, plan }).find((item) => item.id === "plan");
+
+  it("sits in GIT right after the prompt item", () => {
+    const ids = MENU_ITEMS.map((item) => item.id);
+    const plan = MENU_ITEMS.find((item) => item.id === "plan");
+
+    expect(ids.indexOf("plan")).toBe(ids.indexOf("prompt") + 1);
+    expect(plan?.section).toBe("GIT");
+  });
+
+  it("offers a fresh plan when none exists", () => {
+    expect(planItem(null)?.label).toBe("Spec plan (SDD)");
+    expect(planItem(null)?.done).toBeFalsy();
+  });
+
+  it("relabels to resume with stage and task progress", () => {
+    expect(
+      planItem({ approved: 3, tasksDone: 2, tasksTotal: 7 }),
+    ).toMatchObject({
+      label: "Resume spec plan (SDD)",
+      done: false,
+    });
+    expect(
+      planItem({ approved: 3, tasksDone: 2, tasksTotal: 7 })?.hint,
+    ).toContain("3/4 stages approved · tasks 2/7");
+  });
+
+  it("is done only when every stage is approved and every task checked", () => {
+    expect(planItem({ approved: 4, tasksDone: 7, tasksTotal: 7 })?.done).toBe(
+      true,
+    );
+    expect(planItem({ approved: 4, tasksDone: 6, tasksTotal: 7 })?.done).toBe(
+      false,
+    );
+  });
+});
+
 describe("buildMenuDetail", () => {
   it("lists the repository context the wide layout shows", () => {
     const detail = buildMenuDetail({

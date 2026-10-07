@@ -58,6 +58,7 @@ import { Logo } from "./logo.js";
 import { Panel } from "./panel.js";
 import { useViewport, WIDE_LAYOUT_COLUMNS } from "./viewport.js";
 import { countAgentFiles } from "../domain/agent-setup.js";
+import { summarizePlanForMenu, type PlanMenuSummary } from "../domain/plan.js";
 import {
   buildMenuDetail,
   buildMenuItems,
@@ -74,6 +75,7 @@ import {
   SelectList,
 } from "./menu-view.js";
 import { PrReviewFlow } from "./pr-review.js";
+import { PlanFlow } from "./plan-flow.js";
 import { PromptReviewFlow } from "./prompt-review.js";
 import {
   appendEvent,
@@ -158,7 +160,7 @@ type MenuView =
       view: "session-input";
       step: "feature" | "ticket" | "requirements" | "base";
       draft: SessionDraft;
-      next: "menu" | "pr" | "branch" | "prompt";
+      next: "menu" | "pr" | "branch" | "prompt" | "plan";
     }
   | { view: "session-review" }
   | { view: "clear-confirm" }
@@ -201,6 +203,7 @@ type MenuView =
       label: string;
       spec: Extract<CommandSpec, { name: "prompt" }>;
     }
+  | { view: "plan-flow"; label: string }
   | {
       view: "result";
       label: string;
@@ -279,6 +282,7 @@ export function MenuApp({
   const [stats, setStats] = useState<HeaderStats>(EMPTY_STATS);
   const [detectedBase, setDetectedBase] = useState<string | null>(null);
   const [agentFiles, setAgentFiles] = useState(0);
+  const [planSummary, setPlanSummary] = useState<PlanMenuSummary | null>(null);
   // Name of the template highlighted in the picker, driving its live preview.
   // Null until the cursor first moves; the render falls back to the initial id.
   const [previewName, setPreviewName] = useState<string | null>(null);
@@ -314,11 +318,14 @@ export function MenuApp({
     const cwd = process.cwd();
     const root = await getRepoRoot(cwd);
     const currentBranch = root ? await getCurrentBranch(cwd) : null;
-    const [loaded, worktree, baseRef, agents] = await Promise.all([
+    const [loaded, worktree, baseRef, agents, plan] = await Promise.all([
       root && currentBranch ? loadSession(root, currentBranch) : null,
       root ? getWorktreeShortStat(cwd) : null,
       root ? resolveBaseRef(cwd, null) : null,
       root ? countAgentFiles(root) : 0,
+      root && currentBranch
+        ? summarizePlanForMenu(root, currentBranch).catch(() => null)
+        : null,
     ]);
     const range = baseRef ? await getRangeShortStat(cwd, baseRef) : null;
 
@@ -328,6 +335,7 @@ export function MenuApp({
     setStats({ worktree, range });
     setDetectedBase(baseRef);
     setAgentFiles(agents);
+    setPlanSummary(plan);
 
     return {
       root,
@@ -470,7 +478,7 @@ export function MenuApp({
    */
   function requireContext(
     label: string,
-    next: "pr" | "branch" | "prompt",
+    next: "pr" | "branch" | "prompt" | "plan",
   ): boolean {
     if (!ensureBranch(label)) {
       return false;
@@ -690,7 +698,7 @@ export function MenuApp({
 
   async function saveContextAndContinue(
     draft: SessionDraft,
-    next: "menu" | "pr" | "branch" | "prompt",
+    next: "menu" | "pr" | "branch" | "prompt" | "plan",
   ): Promise<void> {
     if (repoRoot === null || branch === null) {
       return;
@@ -738,6 +746,8 @@ export function MenuApp({
         label: "Create feature or bugfix prompt",
         spec: EMPTY_PROMPT_SPEC,
       });
+    } else if (next === "plan") {
+      setMode({ view: "plan-flow", label: "Spec plan (SDD)" });
     } else {
       startBranchInput(updated);
     }
@@ -811,6 +821,22 @@ export function MenuApp({
           label: "Create feature or bugfix prompt",
           spec: EMPTY_PROMPT_SPEC,
         });
+        return;
+      case "plan":
+        // A plan already on disk (e.g. cloned from a teammate) carries its
+        // own feature in index.md, so it does not need a local session.
+        if (
+          planSummary === null &&
+          !requireContext("Spec plan (SDD)", "plan")
+        ) {
+          return;
+        }
+
+        if (planSummary !== null && !ensureBranch("Spec plan (SDD)")) {
+          return;
+        }
+
+        setMode({ view: "plan-flow", label: "Spec plan (SDD)" });
         return;
       case "branch":
         if (!requireContext("Create branch name", "branch")) {
@@ -1039,6 +1065,7 @@ export function MenuApp({
     branch,
     targetBase: session?.context?.baseRef ?? detectedBase,
     agentFiles,
+    plan: planSummary,
   });
   const menuDetail = buildMenuDetail({
     branch,
@@ -1060,6 +1087,7 @@ export function MenuApp({
         mode.view === "branch-pick" ||
         mode.view === "pr-review" ||
         mode.view === "prompt-review" ||
+        mode.view === "plan-flow" ||
         mode.view === "docs-run" ||
         mode.view === "agent-setup-run" ||
         mode.view === "help" ||
@@ -1079,16 +1107,18 @@ export function MenuApp({
               ? `${mode.label}...`
               : mode.view === "pr-review" || mode.view === "prompt-review"
                 ? `${mode.label} — review before approving`
-                : mode.view === "docs-run"
-                  ? "Generate documentation — agent activity"
-                  : mode.view === "agent-setup-run"
-                    ? "Set up project agents — analyze, answer, generate"
-                    : mode.view === "help"
-                      ? "Help — scroll with ↑/↓ or the wheel, esc to return"
-                      : mode.view === "clear-confirm"
-                        ? "Clear session context — this cannot be undone"
-                        : // Menu view: no subtitle — the header lines carry it.
-                          undefined
+                : mode.view === "plan-flow"
+                  ? "Spec plan (SDD)"
+                  : mode.view === "docs-run"
+                    ? "Generate documentation — agent activity"
+                    : mode.view === "agent-setup-run"
+                      ? "Set up project agents — analyze, answer, generate"
+                      : mode.view === "help"
+                        ? "Help — scroll with ↑/↓ or the wheel, esc to return"
+                        : mode.view === "clear-confirm"
+                          ? "Clear session context — this cannot be undone"
+                          : // Menu view: no subtitle — the header lines carry it.
+                            undefined
           }
         />
         {mode.view === "menu" ? (
@@ -1710,6 +1740,34 @@ export function MenuApp({
               }
             }}
             spec={mode.spec}
+          />
+        ) : null}
+        {mode.view === "plan-flow" ? (
+          <PlanFlow
+            explore
+            flags={flags}
+            isActive
+            onDone={(outcome) => {
+              void refreshSession();
+
+              if (outcome.status === "failed") {
+                showError(mode.label, outcome.message);
+                return;
+              }
+
+              // Summary lines only: the result view is not windowed, so the
+              // documents themselves stay on disk.
+              const text = outcome.summary.join("\n");
+
+              onResult?.(text);
+              setMode({
+                view: "result",
+                label: mode.label,
+                result: text,
+                error: null,
+              });
+            }}
+            startStage={null}
           />
         ) : null}
         {mode.view === "result" ? (

@@ -11,7 +11,7 @@ Subcommands are positional (rather than mode flags) because there are several of
 them; the flag-parsing style (hand-rolled loop → discriminated union) is kept.
 The commands and every flag are listed in [`README.md`](README.md#commands); how
 the single-shot/agentic tier is picked per command is in
-[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md#the-two-tier-runner). This file
+[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md#the-runner-tiers). This file
 records only the decisions behind them.
 
 ### `--dry-run` per command (no LLM, no credentials)
@@ -174,6 +174,47 @@ this application"` even with a perfectly correct request and a valid token.
   (`computePromptRows`) instead of a fixed six lines. `TailPanel`, the streamed
   run log in direct/docs runs, the saved session context and long tool lines
   were the other content-driven overflows and are windowed the same way.
+
+## 5b. Spec plan (`sinscribe plan`, 2026-10-07)
+
+Ported from the spec-driven workflow of `agent-skills`
+(spec → plan → tasks → build, human-gated), keeping its discipline and closing
+the gaps it leaves to prose:
+
+- **The files are the source of truth, not the conversation.** Approval is
+  recorded in `specs/<branch>/index.md` (a JSON comment written only by code);
+  stale/edited/next are recomputed from content hashes on every read, never
+  stored. A teammate, a new session or another agent sees the same state, and
+  approval is never inferred from chat. Task checkboxes are normalised out of
+  the hash, so progress never reads as a spec edit.
+- **Traceability is mechanical.** `REQ-n` / `AC-n.m` / `T-n` ids with
+  `Implements:` / `Depends on:` lines are parsed, and approving `tasks.md` is
+  blocked by dangling references, duplicates or cycles (agent-skills has no ids;
+  coverage was a reviewer's job).
+- **The LLM writes prose; code owns state.** Framing, nav links, the design's
+  "Context read" list, the handoff's status table and its append-only `## Log`
+  are deterministic. Regenerating the handoff feeds the agent's log and an
+  authoritative checkbox summary back in, last in the prompt.
+- **Loop = strategy A.** Sinscribe does not implement code: `LOOP_PROMPT.md`
+  is a deterministic contract for the user's own coding agent (one task,
+  verify, tick, log, commit unless the rules forbid it; stop at checkpoints,
+  blockers and spec gaps, which become _spec deltas_ instead of silent edits).
+  `--sync` is offline and deterministic. _Strategy C_ — Sinscribe spawning
+  `claude -p` with edit/test tools per task, in a worktree, with a budget cap —
+  is the follow-up; it needs per-task tool allowlists derived from Verify
+  commands before it is safe.
+- **Tier 3 (read-only explore) exists for this command only.** Requirements
+  and design are better grounded in the code, but the user's CLI providers
+  must keep working, so the claude CLI explores with `--restricted --tools
+Read,Glob,Grep` (verified on 2.1.293: out-of-repo reads and `.env` reads —
+  Grep included — are refused), API-key providers with a write-denied
+  `FilesystemBackend`, and everything else falls back to single-shot + a repo
+  brief. **Kiro stays single-shot** until a read-only agent is verified to
+  (a) honour path limits, (b) not be shadowed by a repo-local agent config,
+  and (c) separate tool chatter from the answer — not yet done.
+- **`specs/` is tracked** (unlike `HANDOFF.md`/`AGENT_PROMPT.md`): the plan is
+  part of the branch's work. Public repos publish their plans; the dry run
+  shows whether the directory is ignored.
 
 ## 6. Open decisions (defaults chosen, flag if you disagree)
 

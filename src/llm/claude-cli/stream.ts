@@ -15,7 +15,7 @@ export type ClaudeStreamResult = {
   message: string;
 };
 
-type StreamEvent = {
+export type StreamEvent = {
   type?: unknown;
   subtype?: unknown;
   parent_tool_use_id?: unknown;
@@ -130,7 +130,7 @@ function extractText(content: unknown): string[] {
   });
 }
 
-function toResult(event: StreamEvent): ClaudeStreamResult {
+export function toResult(event: StreamEvent): ClaudeStreamResult {
   const isError = event.is_error === true || event.subtype !== "success";
   const errors = Array.isArray(event.errors)
     ? event.errors.filter((entry): entry is string => typeof entry === "string")
