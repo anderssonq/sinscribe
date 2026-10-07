@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   runSingleShot: vi.fn(),
   runReadOnlyAgent: vi.fn(),
   runClaudeExplore: vi.fn(),
+  runKiroExplore: vi.fn(),
 }));
 
 vi.mock("../src/llm/model.js", () => ({ resolveModel: mocks.resolveModel }));
@@ -24,7 +25,12 @@ vi.mock("../src/llm/claude-cli/explore.js", async (importOriginal) => {
   return { ...original, runClaudeExplore: mocks.runClaudeExplore };
 });
 
+vi.mock("../src/llm/kiro-cli/explore.js", () => ({
+  runKiroExplore: mocks.runKiroExplore,
+}));
+
 const { runExplore, EXPLORE_CLAUSE } = await import("../src/llm/explore.js");
+const { ChatKiroCli } = await import("../src/llm/kiro-cli/model.js");
 const { ExploreUnsupportedError } =
   await import("../src/llm/claude-cli/explore.js");
 const { buildReadOnlyPermissions } = await vi.importActual<
@@ -88,6 +94,36 @@ describe("runExplore routing", () => {
       model: "sonnet",
       repoRoot: "/repo",
       userPrompt: "USER",
+      systemPrompt: `SYS\n${EXPLORE_CLAUSE}`,
+    });
+    expect(opts.fallbackContext).not.toHaveBeenCalled();
+  });
+
+  it("kiro-cli explores through its read-only agent", async () => {
+    mocks.resolveModel.mockResolvedValue({
+      provider: "kiro-cli",
+      modelId: "auto",
+      model: new ChatKiroCli({ model: "auto", command: "kiro-cli" }),
+    });
+    mocks.runKiroExplore.mockResolvedValue({
+      text: "DOC",
+      filesRead: ["docs/report.md"],
+    });
+
+    const opts = options();
+    const result = await runExplore("SYS", "USER", opts);
+
+    expect(result).toEqual({
+      text: "DOC",
+      modelId: "auto",
+      mode: "kiro-cli-readonly",
+      filesRead: ["docs/report.md"],
+      fallbackReason: null,
+    });
+    expect(mocks.runKiroExplore.mock.calls[0][0]).toMatchObject({
+      command: "kiro-cli",
+      model: "auto",
+      repoRoot: "/repo",
       systemPrompt: `SYS\n${EXPLORE_CLAUSE}`,
     });
     expect(opts.fallbackContext).not.toHaveBeenCalled();

@@ -246,9 +246,10 @@ index is written only by Sinscribe; every stage file links to the others.
 
 - **Grounded in the code.** Requirements and design let the model read the
   repository first, read-only: with the Claude Code provider through `claude`
-  with only Read/Glob/Grep, confined to the repo (`--restricted`); with API-key
-  providers through a write-denied agent. `.env` files and keys are never
-  readable, and output is scanned for secrets. Kiro and `--no-explore` use a
+  with only Read/Glob/Grep, confined to the repo (`--restricted`); with Kiro
+  through an agent whose only tool is `fs_read`, limited to the repo; with
+  API-key providers through a write-denied agent. `.env` files and keys are
+  never readable, and output is scanned for secrets. `--no-explore` uses a
   single call with a repo brief (tracked files, scripts, `CLAUDE.md`/`AGENTS.md`).
 - **Traceable.** Approving `tasks.md` is blocked while a task references an AC
   or task that does not exist, or the dependencies form a cycle; uncovered ACs,
@@ -330,12 +331,12 @@ endpoint (free, no tokens) to verify the key and model before saving.
 
 ### Provider support
 
-| Provider                                                                         | Status                                                                      |
-| -------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
-| `opencode-go`                                                                    | **Recommended** — the default; supported and regularly tested               |
-| `kiro-cli`                                                                       | **Recommended** — drives AWS's official Kiro CLI; single-shot commands only |
-| `claude-cli`                                                                     | Drives your signed-in Claude Code CLI; single-shot commands only            |
-| `openrouter`, `anthropic`, `openai`, `baseten`, `fireworks`, `openai-compatible` | Selectable — not actively maintained or regularly tested                    |
+| Provider                                                                         | Status                                                                                          |
+| -------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| `opencode-go`                                                                    | **Recommended** — the default; supported and regularly tested                                   |
+| `kiro-cli`                                                                       | **Recommended** — drives AWS's official Kiro CLI; read-only explore for plan and session drafts |
+| `claude-cli`                                                                     | Drives your signed-in Claude Code CLI; single-shot commands only                                |
+| `openrouter`, `anthropic`, `openai`, `baseten`, `fireworks`, `openai-compatible` | Selectable — not actively maintained or regularly tested                                        |
 
 > [!WARNING]
 > Only the recommended providers (OpenCode Go and Kiro CLI) are exercised
@@ -468,10 +469,11 @@ drafts the context instead of you typing every field — but you steer it:
    detected ticket, commits, changed files, markdown docs, `HANDOFF.md`.
 2. **Evidence.** The AI looks for code and markdown documents (reports, notes,
    specs, handoffs) related to your direction — **read-only**: with the Claude
-   Code provider through `claude --restricted` with Read/Glob/Grep, with API-key
-   providers through a write-denied agent; other providers (Kiro) get the repo
-   brief plus excerpts of the matching docs instead. `.env` files and keys are
-   never readable. You can also pick "Don't read the code" for a faster draft.
+   Code provider through `claude --restricted` with Read/Glob/Grep, with Kiro
+   through an agent whose only tool is `fs_read` limited to the repository, with
+   API-key providers through a write-denied agent. `.env` files and keys are
+   never readable. You can also pick "Don't read the code" for a faster draft
+   from git, the repo brief and excerpts of the matching docs.
 3. **Review.** The draft shows the feature (your direction first), ticket,
    target, requirements, the **sources** it used and the **open questions** the
    repository could not answer. From there: **refine the goal**, **add details

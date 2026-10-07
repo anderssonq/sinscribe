@@ -109,10 +109,38 @@ function createFakeIO(columns: number, rows: number) {
   return { stdout, stdin, frames, press };
 }
 
+/**
+ * One key, sent once the screen it is meant for has been written: fixed
+ * sleeps lose to a loaded machine, where Ink's throttled renders land late.
+ */
+type Step = { waitFor: string | null; key: string };
+
+const step = (waitFor: string | null, key: string): Step => ({ waitFor, key });
+
+async function waitForText(
+  frames: string[],
+  from: number,
+  text: string,
+): Promise<void> {
+  for (let attempt = 0; attempt < 300; attempt++) {
+    if (
+      frames
+        .slice(from)
+        .some((frame) => frame.replace(ANSI_PATTERN, "").includes(text))
+    ) {
+      return;
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+
+  throw new Error(`Screen never showed: ${text}`);
+}
+
 async function drive(
   columns: number,
   rows: number,
-  keys: string[],
+  steps: Step[],
 ): Promise<{ frames: string[]; outcome: SessionDraftOutcome | null }> {
   const io = createFakeIO(columns, rows);
   let outcome: SessionDraftOutcome | null = null;
@@ -133,13 +161,18 @@ async function drive(
     },
   );
 
-  await new Promise((resolve) => setTimeout(resolve, 30));
+  let seen = 0;
 
-  for (const key of keys) {
+  for (const { waitFor, key } of steps) {
+    if (waitFor !== null) {
+      await waitForText(io.frames, seen, waitFor);
+    }
+
+    seen = io.frames.length;
     await io.press(key);
   }
 
-  await new Promise((resolve) => setTimeout(resolve, 30));
+  await new Promise((resolve) => setTimeout(resolve, 50));
 
   const exited = instance.waitUntilExit();
 
@@ -163,12 +196,12 @@ describe("SessionDraftFlow", () => {
     requests.length = 0;
 
     const { frames, outcome } = await drive(100, 40, [
-      "retry uploads",
-      SUBMIT,
-      ENTER, // read the code (read-only)
-      ENTER, // Approve and save → open questions are left
-      DOWN,
-      ENTER, // Save with the questions
+      step("Direction", "retry uploads"),
+      step("retry uploads", SUBMIT),
+      step("How should the AI gather evidence?", ENTER),
+      step("Proposed session context", ENTER), // Approve and save
+      step("still unanswered", DOWN),
+      step("Save with the questions —", ENTER),
     ]);
     const text = frames.join("\n");
 
@@ -192,14 +225,14 @@ describe("SessionDraftFlow", () => {
     requests.length = 0;
 
     await drive(100, 40, [
-      "retry uploads",
-      SUBMIT,
-      DOWN,
-      ENTER, // don't read the code
-      DOWN,
-      ENTER, // Refine the goal
-      "only the retry policy",
-      SUBMIT,
+      step("Direction", "retry uploads"),
+      step("retry uploads", SUBMIT),
+      step("How should the AI gather evidence?", DOWN),
+      step("Don't read the code —", ENTER),
+      step("Proposed session context", DOWN),
+      step("Refine the goal —", ENTER),
+      step("New direction", "only the retry policy"),
+      step("only the retry policy", SUBMIT),
     ]);
 
     expect(requests[0]?.explore).toBe(false);
@@ -215,9 +248,10 @@ describe("SessionDraftFlow", () => {
   ] as const) {
     it(`keeps the review inside a ${columns}x${rows} terminal`, async () => {
       const { frames } = await drive(columns, rows, [
-        "retry uploads",
-        SUBMIT,
-        ENTER,
+        step("Direction", "retry uploads"),
+        step("retry uploads", SUBMIT),
+        step("gather evidence", ENTER),
+        step("Approve and save", ""),
       ]);
 
       expect(frames.join("\n")).toContain("Approve and save");

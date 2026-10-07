@@ -209,10 +209,12 @@ the gaps it leaves to prose:
   must keep working, so the claude CLI explores with `--restricted --tools
 Read,Glob,Grep` (verified on 2.1.293: out-of-repo reads and `.env` reads —
   Grep included — are refused), API-key providers with a write-denied
-  `FilesystemBackend`, and everything else falls back to single-shot + a repo
-  brief. **Kiro stays single-shot** until a read-only agent is verified to
-  (a) honour path limits, (b) not be shadowed by a repo-local agent config,
-  and (c) separate tool chatter from the answer — not yet done.
+  `FilesystemBackend`, Kiro with a per-run agent whose only tool is an
+  untrusted `fs_read` (verified on kiro-cli 2.3.0: a _trusted_ `fs_read`
+  ignores `allowedPaths` and read `/etc/hosts`; untrusted, out-of-repo and
+  `.env` reads are rejected, the agent lives in a per-run directory a repo
+  cannot shadow, and the answer is the first `> ` message after the last tool
+  line), and everything else falls back to single-shot + a repo brief.
 - **`specs/` is tracked** (unlike `HANDOFF.md`/`AGENT_PROMPT.md`): the plan is
   part of the branch's work. Public repos publish their plans; the dry run
   shows whether the directory is ignored.

@@ -6,6 +6,8 @@ import {
   runClaudeExplore,
 } from "./claude-cli/explore.js";
 import { emitDebug } from "./events.js";
+import { runKiroExplore } from "./kiro-cli/explore.js";
+import { ChatKiroCli } from "./kiro-cli/model.js";
 import { resolveModel } from "./model.js";
 import { runSingleShot, type SingleShotOptions } from "./single-shot.js";
 
@@ -18,11 +20,15 @@ import { runSingleShot, type SingleShotOptions } from "./single-shot.js";
  *
  * - claude-cli: the CLI's own Read/Glob/Grep under --restricted (repo-confined)
  * - api-key providers: deepagents FilesystemBackend with write-deny permissions
- * - kiro-cli / --no-explore / an old claude CLI: single-shot + repo brief
+ * - kiro-cli: a per-run agent whose only tool is fs_read, confined to the repo
+ * - --no-explore / an old claude CLI: single-shot + repo brief
  */
 
 export type ExploreMode =
-  "claude-cli-readonly" | "agent-readonly" | "single-shot";
+  | "claude-cli-readonly"
+  | "kiro-cli-readonly"
+  | "agent-readonly"
+  | "single-shot";
 
 export type ExploreOptions = SingleShotOptions & {
   repoRoot: string;
@@ -110,6 +116,31 @@ export async function runExplore(
 
       throw error;
     }
+  }
+
+  if (kind === "kiro-cli" && resolved.model instanceof ChatKiroCli) {
+    options.onEvent?.({
+      type: "status",
+      message: "Exploring the repository (read-only)…",
+    });
+
+    const result = await runKiroExplore({
+      command: resolved.model.command,
+      model: resolved.model.model,
+      systemPrompt: withExploreClause(systemPrompt),
+      userPrompt,
+      repoRoot: options.repoRoot,
+      debug: options.debug,
+      onEvent: options.onEvent,
+    });
+
+    return {
+      text: result.text,
+      modelId: resolved.modelId,
+      mode: "kiro-cli-readonly",
+      filesRead: result.filesRead,
+      fallbackReason: null,
+    };
   }
 
   if (kind === "agent") {

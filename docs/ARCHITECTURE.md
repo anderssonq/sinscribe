@@ -226,8 +226,14 @@ worth grounding in the code, none allowed to act on it.
 - API-key providers: `createDeepAgent` on a `FilesystemBackend` (not a sandbox,
   so no `execute` tool) with `permissions` denying every write and the same
   secret globs. Subagents inherit the permissions.
-- Everything else — `kiro-cli` until its read-only agent is verified,
-  `--no-explore`, a claude CLI too old for `--restricted` — is single-shot with
+- `kiro-cli`: `kiro-cli chat --no-interactive --agent sinscribe-readonly`
+  from a fresh per-run directory holding that agent: `fs_read` is its only
+  tool and is deliberately untrusted, so `toolsSettings.fs_read.allowedPaths`
+  (the repo) is the only approval and `deniedPaths` refuses the same secret
+  globs. Files read come from Kiro's "✓ Successfully read … from" lines; the
+  answer is the first `> ` message after the last tool line.
+- Everything else — `--no-explore`, a claude CLI too old for `--restricted` —
+  is single-shot with
   a `repo-brief.ts` orientation appended. Only that missing capability
   degrades silently; auth errors and timeouts surface.
 

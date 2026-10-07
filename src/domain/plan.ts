@@ -463,6 +463,7 @@ function reviewOnDisk(
 
 function modeOf(record: PlanStageRecord): ExploreMode {
   return record.mode === "claude-cli-readonly" ||
+    record.mode === "kiro-cli-readonly" ||
     record.mode === "agent-readonly"
     ? record.mode
     : "single-shot";
