@@ -6,6 +6,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { GlobalFlags } from "../src/commands.js";
 import type { HandoffInput } from "../src/domain/handoff.js";
 import { AppShell } from "../src/ui/app-shell.js";
+import { DocReviewFlow } from "../src/ui/doc-review.js";
 import { DocsReviewFlow } from "../src/ui/docs-review.js";
 import { HandoffReviewFlow } from "../src/ui/handoff-review.js";
 import { PrReviewFlow } from "../src/ui/pr-review.js";
@@ -16,6 +17,8 @@ import {
   MultiSelectList,
 } from "../src/ui/menu-view.js";
 import { Panel, TailPanel } from "../src/ui/panel.js";
+import { PlanFlow } from "../src/ui/plan-flow.js";
+import type { RunCallbacks } from "../src/llm/events.js";
 import { RunLog, type LogItem } from "../src/ui/run-view.js";
 import { Spinner } from "../src/ui/spinner.js";
 
@@ -59,6 +62,48 @@ vi.mock("../src/domain/docs.js", () => ({
     new Promise((resolve) =>
       setTimeout(() => resolve(LONG_DOCUMENT), GENERATION_DELAY_MS),
     ),
+}));
+
+const PLAN_VIEWS = Object.fromEntries(
+  ["requirements", "design", "tasks", "handoff"].map((stage) => [
+    stage,
+    { status: "approved", editedSinceApproval: false, staleBecause: null },
+  ]),
+);
+
+vi.mock("../src/domain/plan.js", () => ({
+  loadPlanContext: () =>
+    Promise.resolve({
+      dirRel: "specs/feat-a-very-long-branch-name-for-wrapping",
+    }),
+  readPlan: () =>
+    Promise.resolve({
+      index: null,
+      bodies: {},
+      views: PLAN_VIEWS,
+      next: null,
+      conflict: null,
+      unmanaged: false,
+      requirements: [],
+      tasks: [],
+      coverage: null,
+      progress: {
+        done: 3,
+        total: 9,
+        next: { id: "T-4", title: "Wire it" },
+        acs: [],
+        commitsByTask: {},
+        inconsistencies: [],
+      },
+      loopPromptExists: true,
+    }),
+  createStageRun: () => {
+    throw new Error("not used");
+  },
+  approveStage: () => Promise.resolve([]),
+  syncPlan: () => Promise.resolve([]),
+  readLoopPrompt: () => Promise.resolve(""),
+  resetPlan: () => Promise.resolve(),
 }));
 
 const FLAGS: GlobalFlags = {
@@ -592,4 +637,123 @@ describe("centered content column on a wide terminal", () => {
     expect(tallestFrameRows(frames)).toBeLessThan(26);
     expect(widestFrameColumn(frames)).toBeLessThanOrEqual(210);
   });
+});
+
+describe("spec plan views", () => {
+  const sizes: Array<[number, number]> = [
+    [40, 15],
+    [80, 24],
+    [300, 100],
+  ];
+  const WARNINGS = [
+    "✗ T-9 implements AC-7.1, which requirements.md lacks",
+    ...Array.from(
+      { length: 9 },
+      (_, index) => `T-${index + 1} has no Verify command`,
+    ),
+  ];
+
+  for (const [columns, rows] of sizes) {
+    it(`DocReviewFlow bounds a 200-tool exploration and a long draft at ${columns}x${rows}`, async () => {
+      const generate = async (
+        _feedback: string | null,
+        callbacks: RunCallbacks,
+      ) => {
+        for (let index = 0; index < 200; index += 1) {
+          callbacks.onEvent?.({
+            type: "tool_start",
+            id: `t${index}`,
+            name: "Read",
+            call: `Read src/module-${index}/${"deeply/nested/".repeat(6)}file.ts`,
+          });
+        }
+
+        await new Promise((resolve) =>
+          setTimeout(resolve, GENERATION_DELAY_MS),
+        );
+
+        return {
+          content: LONG_DOCUMENT,
+          warnings: WARNINGS,
+          note: "explored · 200 files",
+        };
+      };
+      const frames = await renderOnce(
+        createElement(DocReviewFlow, {
+          approve: () => Promise.resolve([]),
+          approveLabel: "Approve tasks.md",
+          generate,
+          generatingLabel: "Writing tasks.md...",
+          isActive: true,
+          onDone: () => undefined,
+          refinePlaceholder: "e.g. split T-3",
+          saveDraft: () => Promise.resolve([]),
+          stepper: "Stage 3/4 · ✓ Requirements  ✓ Design  ▸ Tasks  · Handoff",
+          title: "Tasks — specs/feat-x/tasks.md",
+        }),
+        columns,
+        rows,
+      );
+
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(tallestFrameRows(frames)).toBeLessThanOrEqual(rows);
+      expect(frames.some((frame) => frame.includes("\x1b[3J"))).toBe(false);
+    });
+
+    it(`DocReviewFlow review screen with validator errors fits ${columns}x${rows}`, async () => {
+      const frames = await renderOnce(
+        createElement(DocReviewFlow, {
+          approve: () => Promise.resolve([]),
+          approveLabel: "Approve tasks.md",
+          generate: () => Promise.reject(new Error("unused")),
+          generatingLabel: "Writing tasks.md...",
+          initialDraft: {
+            content: LONG_DOCUMENT,
+            warnings: WARNINGS,
+            note: "saved draft",
+          },
+          isActive: true,
+          onDone: () => undefined,
+          refinePlaceholder: "e.g. split T-3",
+          stepper: "Stage 3/4 · ✓ Requirements  ✓ Design  ▸ Tasks  · Handoff",
+          title: "Tasks — specs/feat-x/tasks.md",
+        }),
+        columns,
+        rows,
+      );
+
+      expect(tallestFrameRows(frames)).toBeLessThanOrEqual(rows);
+      expect(frames.some((frame) => frame.includes("\x1b[3J"))).toBe(false);
+
+      // Errors hide Approve; the fix action is offered instead.
+      if (rows >= 24) {
+        const text = allFrameText(frames);
+
+        expect(text).toContain("Fix the ✗ problems before approving");
+        expect(text).not.toContain("Approve tasks.md");
+      }
+    });
+
+    it(`PlanFlow's existing-plan menu fits ${columns}x${rows}`, async () => {
+      const frames = await renderOnce(
+        createElement(PlanFlow, {
+          explore: true,
+          flags: FLAGS,
+          isActive: true,
+          onDone: () => undefined,
+          startStage: null,
+        }),
+        columns,
+        rows,
+      );
+
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(tallestFrameRows(frames)).toBeLessThanOrEqual(rows);
+      expect(frames.some((frame) => frame.includes("\x1b[3J"))).toBe(false);
+
+      if (rows >= 24) {
+        expect(allFrameText(frames)).toContain("tasks 3/9");
+      }
+    });
+  }
 });

@@ -40,22 +40,25 @@ Three properties drive most of the design:
 
 Each module owns its git reads, its prompt assembly, and its choice of runner.
 
-| File                                                                      | Responsibility                                                                                                                           |
-| ------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| `execute.ts`                                                              | Dispatch: `executeCommand()`, `executeDryRun()`, `isAgenticCommand()`, `isOfflineCommand()`.                                             |
-| `prompts.ts`                                                              | Every system-prompt builder, `appendRules()`, `JSON_ONLY_INSTRUCTION`.                                                                   |
-| `pr.ts`                                                                   | PR context gathering and the `createPrRun()` generate/refine/approve cycle.                                                              |
-| `prompt.ts`                                                               | Agent task prompts: `createPromptRun()`, kind inference, description resolution.                                                         |
-| `commit.ts`                                                               | `GITMOJI_BY_TYPE`, commit context, message assembly.                                                                                     |
-| `branch.ts`                                                               | Branch-name suggestions with a deterministic fallback.                                                                                   |
-| `branch-actions.ts`                                                       | The only module that writes to git (`checkout -b`, `branch -m`) plus session re-keying. Called from the UI, never from `executeCommand`. |
-| `context.ts`, `docs.ts`, `agents.ts`                                      | Agentic commands. Each builds a prompt and calls `runAgent()`; the CLI writes `--out`, not the model.                                    |
-| `agent-setup.ts`                                                          | Two-pass agentic flow: `planAgentSetup()` (read-only) then `writeAgentSetup()` (path-whitelisted).                                       |
-| `handoff.ts`                                                              | `HANDOFF.md` generate/save cycle.                                                                                                        |
-| `template.ts`                                                             | `list`/`show`/`add`/`edit`/`path`. The only command needing neither model nor credentials.                                               |
-| `rules.ts`                                                                | Two-tier free-text rules appended to every system prompt.                                                                                |
-| `pr-export.ts`, `prompt-export.ts`, `docs-export.ts`, `handoff-export.ts` | Export filenames and markdown envelopes.                                                                                                 |
-| `errors.ts`                                                               | `CliError` — the "print cleanly, exit 1, no stack trace" class.                                                                          |
+| File                                                                      | Responsibility                                                                                                                             |
+| ------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| `execute.ts`                                                              | Dispatch: `executeCommand()`, `executeDryRun()`, `isAgenticCommand()`, `isOfflineCommand()`.                                               |
+| `prompts.ts`                                                              | Every system-prompt builder, `appendRules()`, `JSON_ONLY_INSTRUCTION`.                                                                     |
+| `pr.ts`                                                                   | PR context gathering and the `createPrRun()` generate/refine/approve cycle.                                                                |
+| `prompt.ts`                                                               | Agent task prompts: `createPromptRun()`, kind inference, description resolution.                                                           |
+| `commit.ts`                                                               | `GITMOJI_BY_TYPE`, commit context, message assembly.                                                                                       |
+| `branch.ts`                                                               | Branch-name suggestions with a deterministic fallback.                                                                                     |
+| `branch-actions.ts`                                                       | The only module that writes to git (`checkout -b`, `branch -m`) plus session re-keying. Called from the UI, never from `executeCommand`.   |
+| `context.ts`, `docs.ts`, `agents.ts`                                      | Agentic commands. Each builds a prompt and calls `runAgent()`; the CLI writes `--out`, not the model.                                      |
+| `agent-setup.ts`                                                          | Two-pass agentic flow: `planAgentSetup()` (read-only) then `writeAgentSetup()` (path-whitelisted).                                         |
+| `handoff.ts`                                                              | `HANDOFF.md` generate/save cycle.                                                                                                          |
+| `plan.ts`                                                                 | Spec plan I/O: `loadPlanContext()`, `readPlan()` snapshot, `createStageRun()`, offline `approveStage()`/`syncPlan()`, dry run, print path. |
+| `plan-docs.ts`                                                            | Spec plan pure core: framing, hashing and staleness, `REQ`/`AC`/`T` parsers, coverage, progress, handoff zones, `LOOP_PROMPT.md`.          |
+| `repo-brief.ts`                                                           | Bounded repository orientation (tracked files, scripts, root rule docs) for single-shot spec stages.                                       |
+| `template.ts`                                                             | `list`/`show`/`add`/`edit`/`path`. The only command needing neither model nor credentials.                                                 |
+| `rules.ts`                                                                | Two-tier free-text rules appended to every system prompt.                                                                                  |
+| `pr-export.ts`, `prompt-export.ts`, `docs-export.ts`, `handoff-export.ts` | Export filenames and markdown envelopes.                                                                                                   |
+| `errors.ts`                                                               | `CliError` — the "print cleanly, exit 1, no stack trace" class.                                                                            |
 
 ### `src/git/` — plumbing
 
@@ -72,13 +75,14 @@ Each module owns its git reads, its prompt assembly, and its choice of runner.
 | ---------------- | ------------------------------------------------------------------------------------------------------------------- |
 | `model.ts`       | `resolveModel()` — the single place a chat model is constructed.                                                    |
 | `single-shot.ts` | Tier 1: `runSingleShot()`, plus `stripMarkdownFence()` and `extractJsonObject()`.                                   |
-| `agent.ts`       | Tier 2: `runAgent()`, `buildShellEnv()`, `createThreadId()`, `parseStreamEvent()`.                                  |
+| `agent.ts`       | Tier 2: `runAgent()`, `buildShellEnv()`, `createThreadId()`, `parseStreamEvent()`; tier 3's `runReadOnlyAgent()`.   |
+| `explore.ts`     | Tier 3: `runExplore()` — read-only repository exploration with a single-shot fallback.                              |
 | `events.ts`      | `RunEvent`, `RunCallbacks`, `getContentText()`.                                                                     |
 | `errors.ts`      | Error classification, retry with backoff, `toFriendlyError()`, `InvalidModelJsonError`.                             |
 | `watchdog.ts`    | Inactivity watchdog and `raceAbort()`.                                                                              |
 | `healthcheck.ts` | `testProviderConnection()` for the settings "Test connection" step.                                                 |
 | `kiro-cli/`      | `ChatKiroCli` (a `BaseChatModel` driving the `kiro-cli` binary), its generated agent config, and an output cleaner. |
-| `claude-cli/`    | `ChatClaudeCli` (a `BaseChatModel` driving `claude -p`) and its stream-json parser.                                 |
+| `claude-cli/`    | `ChatClaudeCli` (a `BaseChatModel` driving `claude -p`), its stream-json parser, and the read-only `explore.ts`.    |
 | `opencode-go.ts` | The headers OpenCode Go requires (`x-opencode-session`, `User-Agent`) and session-id minting.                       |
 
 ### `src/templates/`, `src/session/`, `src/util/`
@@ -86,14 +90,16 @@ Each module owns its git reads, its prompt assembly, and its choice of runner.
 `templates/schema.ts` parses frontmatter into `Template`; `templates/registry.ts`
 loads the three tiers; `templates/render.ts` fills slots.
 `session/store.ts` holds branch-keyed JSON. `util/clipboard.ts` shells out to the
-platform copy command.
+platform copy command. `util/redact.ts` scrubs secret-shaped values from
+generated documents.
 
 ### `src/ui/`
 
 Three Ink roots: `run-app.tsx` (one command, streaming), `menu-app.tsx` (the
 alt-screen dashboard), `chat-app.tsx` (multi-turn chat). Review flows
 (`pr-review`, `prompt-review`, `docs-review`, `handoff-review`, `agent-setup`)
-drive a generate/refine/approve loop. Shared rendering lives in `run-view.tsx`
+drive a generate/refine/approve loop. `doc-review.tsx` is the generic version of
+that loop (`DocReviewFlow`), used by `plan-flow.tsx` for each spec plan stage. Shared rendering lives in `run-view.tsx`
 and `menu-view.tsx`; terminal and input infrastructure in `theme.ts`, `term.ts`,
 `viewport.ts`, `text-buffer.ts`, `editor.ts`, `mouse.tsx`, and `no-color.ts`.
 
@@ -174,9 +180,10 @@ future format change can be detected rather than guessed at.
 `resolveModel()`, which is the single point where credentials are read and a
 model is constructed.
 
-## The two-tier runner
+## The runner tiers
 
-This is the central design decision, and the one most worth preserving.
+This is the central design decision, and the one most worth preserving. Two
+tiers carry every command; a third, narrow one exists only for the spec plan.
 
 ### Tier 1 — single-shot (`src/llm/single-shot.ts`)
 
@@ -202,24 +209,49 @@ turns shared history within one process.
 Used by `context`, `docs`, `agents`, `agent-setup`, and `chat` — the commands
 whose whole job is to explore a repository the CLI cannot summarise in advance.
 
+### Tier 3 — read-only explore (`src/llm/explore.ts`)
+
+The model may **read** the repository before answering, and nothing else: one
+final markdown document comes back, exactly as from tier 1. Used only by the
+`plan` requirements and design stages, which are worth grounding in the code
+but must never act on it.
+
+- `claude-cli`: `claude -p --restricted --tools Read,Glob,Grep` with cwd at the
+  repo root. `--restricted` confines the file tools to the working directory
+  and ignores project/user settings (so repo hooks never run); `Read(...)` deny
+  rules from `EXPLORE_DENY_GLOBS` keep `.env`, keys and `.git` unreadable, Grep
+  included. The answer is the final `result` event — streamed text is narration.
+- API-key providers: `createDeepAgent` on a `FilesystemBackend` (not a sandbox,
+  so no `execute` tool) with `permissions` denying every write and the same
+  secret globs. Subagents inherit the permissions.
+- Everything else — `kiro-cli` until its read-only agent is verified,
+  `--no-explore`, a claude CLI too old for `--restricted` — is single-shot with
+  a `repo-brief.ts` orientation appended. Only that missing capability
+  degrades silently; auth errors and timeouts surface.
+
+Output is passed through `redactSecrets()` before it is shown or written, and
+the overall deadline is `EXPLORE_TOTAL_MS` (15 minutes).
+
 ### Where the choice is actually made
 
 **Per domain module, not by a central predicate.** `executeCommand`'s switch
 routes to a domain function, and that function calls its runner:
 
-| Command              | Runner          | Call site                                     |
-| -------------------- | --------------- | --------------------------------------------- |
-| `pr`                 | `runSingleShot` | `src/domain/pr.ts`                            |
-| `prompt`             | `runSingleShot` | `src/domain/prompt.ts`                        |
-| `commit`             | `runSingleShot` | `src/domain/commit.ts`                        |
-| `branch`             | `runSingleShot` | `src/domain/branch.ts`                        |
-| `handoff` (sub-flow) | `runSingleShot` | `src/domain/handoff.ts`                       |
-| `context`            | `runAgent`      | `src/domain/context.ts`                       |
-| `docs`               | `runAgent`      | `src/domain/docs.ts`                          |
-| `agents`             | `runAgent`      | `src/domain/agents.ts`                        |
-| `agent-setup`        | `runAgent` ×2   | `src/domain/agent-setup.ts`                   |
-| `chat`               | `runAgent`      | `src/domain/execute.ts`, inline in the switch |
-| `template`           | none            | `src/domain/template.ts`                      |
+| Command              | Runner          | Call site                                      |
+| -------------------- | --------------- | ---------------------------------------------- |
+| `pr`                 | `runSingleShot` | `src/domain/pr.ts`                             |
+| `prompt`             | `runSingleShot` | `src/domain/prompt.ts`                         |
+| `commit`             | `runSingleShot` | `src/domain/commit.ts`                         |
+| `branch`             | `runSingleShot` | `src/domain/branch.ts`                         |
+| `handoff` (sub-flow) | `runSingleShot` | `src/domain/handoff.ts`                        |
+| `plan` req./design   | `runExplore`    | `src/domain/plan.ts`                           |
+| `plan` tasks/handoff | `runSingleShot` | `src/domain/plan.ts` (via `runExplore`/direct) |
+| `context`            | `runAgent`      | `src/domain/context.ts`                        |
+| `docs`               | `runAgent`      | `src/domain/docs.ts`                           |
+| `agents`             | `runAgent`      | `src/domain/agents.ts`                         |
+| `agent-setup`        | `runAgent` ×2   | `src/domain/agent-setup.ts`                    |
+| `chat`               | `runAgent`      | `src/domain/execute.ts`, inline in the switch  |
+| `template`           | none            | `src/domain/template.ts`                       |
 
 The two exported predicates in `execute.ts` are **not** the tier selector, and
 misreading them is the easiest mistake to make here:

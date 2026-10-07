@@ -44,6 +44,13 @@ const ALL_COMMANDS: CommandSpec[] = [
     out: null,
     handoff: false,
   },
+  {
+    name: "plan",
+    stage: null,
+    action: "generate",
+    explore: true,
+    feedback: null,
+  },
   { name: "commit", all: false, scope: null, gitmoji: true },
   { name: "branch", input: "ABC-123 add retry", type: null },
   { name: "context", out: null, format: "md" },
@@ -94,7 +101,7 @@ describe("isAgenticCommand", () => {
   });
 
   it("excludes the single-shot commands, which have no tool activity to stream", () => {
-    for (const name of ["pr", "prompt", "commit", "branch"] as const) {
+    for (const name of ["pr", "prompt", "plan", "commit", "branch"] as const) {
       expect(isAgenticCommand(commandNamed(name))).toBe(false);
     }
   });
@@ -105,12 +112,22 @@ describe("isAgenticCommand", () => {
 });
 
 describe("isOfflineCommand", () => {
-  it("selects template and nothing else", () => {
+  it("selects template and nothing else among the model-backed defaults", () => {
     const offline = ALL_COMMANDS.filter(isOfflineCommand).map(
       (command) => command.name,
     );
 
     expect(offline).toEqual(["template"]);
+  });
+
+  it("treats the plan's deterministic actions as offline, but not generate", () => {
+    const plan = commandNamed("plan");
+
+    for (const action of ["approve", "sync", "loop-prompt"] as const) {
+      expect(isOfflineCommand({ ...plan, action } as CommandSpec)).toBe(true);
+    }
+
+    expect(isOfflineCommand(plan)).toBe(false);
   });
 });
 
@@ -118,6 +135,7 @@ describe("executeDryRun", () => {
   it.each([
     ["pr", "sinscribe pr (dry run"],
     ["prompt", "sinscribe prompt (dry run"],
+    ["plan", "sinscribe plan (dry run"],
     ["commit", "sinscribe commit (dry run"],
     ["branch", "sinscribe branch (dry run"],
     ["context", "sinscribe context (dry run"],

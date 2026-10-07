@@ -57,7 +57,7 @@ src/env.ts           ~/.sinscribe paths, .env load/save, credential diagnostics
 src/credentials.tsx  first-run key wizard
 src/domain/          one module per command, + execute.ts dispatch + prompts.ts
 src/git/             runGit/tryGit, repo detection, diffs, ticket parsing
-src/llm/             the two-tier runner: single-shot.ts vs agent.ts
+src/llm/             the runner tiers: single-shot.ts, agent.ts, explore.ts
   llm/kiro-cli/      ChatKiroCli — the kiro-cli binary as a chat model
 src/templates/       schema · registry (3-tier override) · render
 src/session/         per-branch <repo>/.sinscribe/sessions/<branch>.json
@@ -109,6 +109,9 @@ end to end. Exercise those by hand with `pnpm dev <cmd>` and `--dry-run`.
    exhaustive over `CommandSpec["name"]`, so TypeScript will flag a missing arm.
 6. Classify it: `isAgenticCommand` only if it streams tool activity worth
    rendering, `isOfflineCommand` only if it needs neither model nor credentials.
+   The predicate takes the whole spec, so one command can split by action —
+   `plan --approve/--sync/--loop-prompt` are offline while `plan` generation
+   is not.
 7. Add a system prompt in `domain/prompts.ts` if it is LLM-backed.
 8. Add tests — at minimum, parser coverage in `test/commands.test.ts`.
 
@@ -155,9 +158,21 @@ behind an extra model call.
 
 ## House rules
 
-- **The two-tier runner is load-bearing.** Never give `pr`, `prompt`, `commit`, or
-  `branch` tools, a shell, or a checkpointer. They stay single-shot and
-  deterministic.
+- **The runner tiers are load-bearing.** There are three, and a command's tier
+  is part of its contract:
+  1. **Single-shot** (`runSingleShot`): `pr`, `prompt`, `commit`, `branch`, and
+     the `plan` tasks/handoff stages. No tools, no shell, no checkpointer —
+     `buildClaudeArgs` keeps `--tools ""`. Never give these tools.
+  2. **Agentic** (`runAgent`, `LocalShellBackend`): `context`, `docs`,
+     `agents`, `agent-setup`, `chat`.
+  3. **Read-only explore** (`runExplore`): only the `plan` requirements and
+     design stages. The claude CLI runs with `--restricted --tools
+Read,Glob,Grep` in the repo root; API-key providers run deepagents on a
+     `FilesystemBackend` (no `execute`) with every write denied. Both deny the
+     paths in `EXPLORE_DENY_GLOBS`, output is passed through `redactSecrets`,
+     and there is always a single-shot fallback (`--no-explore`, Kiro, an old
+     claude CLI). Never add a write or shell tool here, and adding this tier to
+     another command needs a `DESIGN.md` entry first.
 - **Never let secrets reach the agent's shell.** `LocalShellBackend` is built with
   `inheritEnv: false` and an explicit `env: buildShellEnv()`, which strips every
   key in `SECRET_ENV_KEYS`. Do not switch it to `inheritEnv: true`, and do not

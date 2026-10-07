@@ -6,6 +6,7 @@ import { executeCommand, isAgenticCommand } from "../domain/execute.js";
 import { AgentSetupFlow } from "./agent-setup.js";
 import { AppShell } from "./app-shell.js";
 import { DocsReviewFlow } from "./docs-review.js";
+import { PlanFlow } from "./plan-flow.js";
 import { PrReviewFlow } from "./pr-review.js";
 import { PromptReviewFlow } from "./prompt-review.js";
 import { appendEvent, Header, RunLog, type LogItem } from "./run-view.js";
@@ -47,6 +48,9 @@ export function RunApp({ command, flags, onResult }: RunAppProps) {
   // agent-setup is interactive by nature (it interviews the author); off a
   // TTY, executeCommand's print path runs it without the questions instead.
   const isAgentSetup = command.name === "agent-setup";
+  // plan generation is a staged review loop; its offline actions (approve,
+  // sync, loop-prompt) never reach RunApp — cli.tsx prints them directly.
+  const isPlanFlow = command.name === "plan" && command.action === "generate";
 
   useEffect(() => {
     if (
@@ -55,7 +59,8 @@ export function RunApp({ command, flags, onResult }: RunAppProps) {
       isPrReview ||
       isPromptReview ||
       isDocsReview ||
-      isAgentSetup
+      isAgentSetup ||
+      isPlanFlow
     ) {
       return;
     }
@@ -93,6 +98,7 @@ export function RunApp({ command, flags, onResult }: RunAppProps) {
     isPromptReview,
     isDocsReview,
     isAgentSetup,
+    isPlanFlow,
   ]);
 
   if (!setupDone) {
@@ -140,6 +146,31 @@ export function RunApp({ command, flags, onResult }: RunAppProps) {
             app.exit();
           }}
           spec={command}
+        />
+      </AppShell>
+    );
+  }
+
+  if (isPlanFlow) {
+    return (
+      <AppShell>
+        <Header subtitle="Spec plan (SDD)" />
+        <PlanFlow
+          explore={command.explore}
+          flags={flags}
+          isActive
+          onDone={(outcome) => {
+            if (outcome.status === "failed") {
+              onResult?.(`Error: ${outcome.message}`);
+              process.exitCode = 1;
+            } else {
+              onResult?.(outcome.summary.join("\n"));
+              process.exitCode = 0;
+            }
+
+            app.exit();
+          }}
+          startStage={command.stage}
         />
       </AppShell>
     );

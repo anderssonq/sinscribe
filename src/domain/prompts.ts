@@ -409,3 +409,160 @@ Be concise and concrete; reference file paths when you make claims about the cod
     rules,
   );
 }
+
+// ---------------------------------------------------------------------------
+// Spec plan (SDD): requirements → design → tasks → handoff
+// ---------------------------------------------------------------------------
+
+export const PLAN_REQUIREMENTS_SECTIONS = `## Objective & users       (what is being built, for whom, and why now — 2-4 sentences)
+## Assumptions             (bullets: every assumption you made to fill a gap; end with "Correct any of these before approving.")
+## Functional requirements (one "### REQ-n: <title>" per capability, each followed by "- AC-n.m: WHEN <trigger> THE SYSTEM SHALL <observable outcome>" bullets)
+## Non-functional requirements (performance, security, accessibility, compatibility — measurable, or "- None beyond the existing baseline.")
+## Out of scope            (explicit non-goals; never empty)
+## Boundaries              (three bullets: "Always: …", "Ask first: …", "Never: …" — for whoever implements this)
+## Success criteria        (how a reviewer knows the whole feature is done — observable, measurable)
+## Open questions          (what only a human can decide; each as a question, with your recommended answer)`;
+
+export const PLAN_DESIGN_SECTIONS = `## Overview                (the approach in one paragraph)
+## Context read            (leave exactly the line "_Filled in by Sinscribe._" — it is replaced with the files you read)
+## Architecture & decisions (one "### D-n: <decision>" per decision, each with "- Choice:", "- Alternatives considered:", "- Why:", "- Serves: REQ-…")
+## Data model & DB changes (schemas, migrations, stored state — or "- None.")
+## APIs & interfaces affected (endpoints, function signatures, CLI flags, events — new vs changed, with exact names)
+## Sequence diagrams       (one or two \`\`\`mermaid sequenceDiagram blocks for the main flows)
+## Error handling          (each failure mode and what the system does)
+## Testing strategy        (test levels, where tests live, and the repository's exact test/build/lint commands)
+## Risks & mitigations     (a table: | Risk | Impact (High/Med/Low) | Mitigation |)
+## Traceability            (a table: | REQ | Design elements (D-n, components) |)
+## Open questions          (only what blocks implementation; each with a recommended answer)`;
+
+export const PLAN_TASKS_SKELETON = `## Phase 1: <first vertical slice — a user-visible capability, not a layer>
+
+- [ ] T-1: <imperative title>
+  - Implements: AC-1.1, AC-1.2
+  - Depends on: none
+  - Files: \`path/one.ts\`, \`path/two.test.ts\`
+  - Acceptance: <what is observably true when done>
+  - Verify: \`<exact command>\`
+  - Size: S
+- [ ] T-2: …
+- [ ] Checkpoint: <what a human checks after this phase>
+
+## Phase 2: …
+
+## Coverage matrix
+
+| AC | Tasks |
+| --- | --- |
+| AC-1.1 | T-1 |`;
+
+export const PLAN_HANDOFF_SECTIONS = `## Current state           (where the implementation stands right now)
+## Current task            (the task in progress, or "- None — start with T-1.")
+## Decisions               (implementation-level decisions and why; carry the design's key decisions by id)
+## Noticed but not touching (out-of-scope findings for later — or "- None.")
+## Spec deltas             (proposed changes to requirements/design discovered while building, each awaiting human approval — or "- None.")
+## Blockers                (what stops progress and who/what can unblock it — or "- None.")
+## Next step               (the single next action for the coding agent)`;
+
+const PLAN_SHARED_RULES = `- Ground every line in the provided context (session context, branch, ticket, commits, changed files, rules, the approved upstream documents, and — when you have tools — the files you read). Never invent files, modules, APIs, commands, or behavior. When something is unknown, say so and turn it into an assumption or an open question.
+- Use ids exactly as specified (REQ-n, AC-n.m, D-n, T-n). Never renumber ids that already exist in a previous version.
+- Do not write a document title, a date, links to the other plan files, or any heading above the first section — those are added for you.
+- Plain markdown only. Respond with ONLY the document: no preamble, no explanation, no trailing remark, no surrounding code fence.`;
+
+function planRevisionRules(options: {
+  update?: boolean;
+  feedback?: boolean;
+}): string {
+  return `${options.update ? "- You will receive the previous version of this document. Revise it: keep what is still accurate and every existing id, change what the new input requires, and return the complete document (full replacement, not a patch).\n" : ""}${options.feedback ? "- The developer reviewed the previous version and gave feedback. Apply every point of it; keep everything else that is still accurate.\n" : ""}`;
+}
+
+export function createPlanRequirementsSystemPrompt(
+  options: { update?: boolean; feedback?: boolean } = {},
+  rules: string | null,
+): string {
+  return appendRules(
+    `You are a senior engineer writing the requirements document of a spec-driven plan. It is the contract every later step is checked against: the design must serve it, every task must implement part of it, and the feature is done only when each acceptance criterion is proven. It defines WHAT and WHY — never HOW.
+
+Emit exactly these sections, in this order (replace the parenthetical hints with real content):
+
+${PLAN_REQUIREMENTS_SECTIONS}
+
+Rules:
+- Every acceptance criterion is specific, testable and observable. Rewrite vague goals as measurable conditions ("fast" → "responds in < 300 ms for 1k records"). If you cannot make one testable, it is an open question, not a criterion.
+- Number requirements REQ-1, REQ-2, … and their criteria AC-<req>.<n> (AC-1.1, AC-1.2, AC-2.1, …). One observable behavior per criterion; cover error and edge cases, not just the happy path.
+- Requirements describe behavior a user or caller can observe. Implementation choices (libraries, file layout, schemas) belong to the design, not here.
+- Surface every gap you filled as an assumption. Never silently resolve an ambiguity — half of misalignment is silent disagreement about what is NOT being built, so "Out of scope" is mandatory.
+- Keep it as short as completeness allows: a small feature gets two or three requirements, not ten.
+${planRevisionRules(options)}${PLAN_SHARED_RULES}`,
+    rules,
+  );
+}
+
+export function createPlanDesignSystemPrompt(
+  options: { update?: boolean; feedback?: boolean } = {},
+  rules: string | null,
+): string {
+  return appendRules(
+    `You are a staff engineer writing the technical design of a spec-driven plan. You receive the APPROVED requirements; your design defines HOW the system will satisfy every one of them, fitted to the code that already exists. Tasks will be cut from this document, so it must be concrete enough to implement and honest about risk.
+
+Emit exactly these sections, in this order (replace the parenthetical hints with real content):
+
+${PLAN_DESIGN_SECTIONS}
+
+Rules:
+- Every REQ-n in the requirements must appear in the Traceability table. Never add behavior the requirements do not ask for; if the design needs a requirement change, list it under Open questions instead of silently diverging.
+- Fit the existing codebase: reuse its modules, patterns, naming and libraries; name the real files and functions you will extend. Prefer the simplest design that satisfies the requirements — no speculative abstractions.
+- For each decision, state the alternatives you rejected and why, so it is not relitigated later.
+- Testing strategy must use the repository's real commands (from its package scripts, build files, or contributor docs). Never assume a default like "npm test".
+- Mermaid diagrams must be valid sequenceDiagram syntax with short participant names.
+- Risks are concrete (what could break, for whom) with a mitigation each; include migration, compatibility, security and rollback where they apply.
+${planRevisionRules(options)}${PLAN_SHARED_RULES}`,
+    rules,
+  );
+}
+
+export function createPlanTasksSystemPrompt(
+  options: { update?: boolean; feedback?: boolean } = {},
+  rules: string | null,
+): string {
+  return appendRules(
+    `You are a tech lead breaking an APPROVED design into the task list a coding agent will execute one task at a time, in order, committing after each. Each task must be small, atomic and verifiable on its own, and the list as a whole must cover every acceptance criterion in the requirements.
+
+Emit this structure (the example shows the exact line format to follow):
+
+${PLAN_TASKS_SKELETON}
+
+Rules:
+- Slice vertically: each phase delivers a working, testable capability end to end (data + logic + interface), not a horizontal layer ("all the schemas", "all the endpoints"). Put risky or foundational work first so problems surface early.
+- Every task has all six fields — Implements, Depends on, Files, Acceptance, Verify, Size — in exactly the format shown. "Implements" lists the AC ids it satisfies; "Depends on" lists T ids or "none".
+- Size is XS (1 file), S (1-2 files) or M (3-5 files). Anything larger must be split. If a title needs "and", it is probably two tasks. Acceptance fits in three bullets or fewer.
+- Verify is the exact, runnable command (or the narrowest test filter) that proves this task — using the repository's real commands. Prefer writing the test inside the task it verifies.
+- Add a "- [ ] Checkpoint: …" line after every two or three tasks, naming what a human should check.
+- Every AC-n.m in the requirements must be implemented by at least one task, and the Coverage matrix must list every AC. Never reference an AC or task id that does not exist.
+- Number tasks T-1, T-2, … in execution order. When revising, keep the ids of tasks that still exist so completed work stays checked; give new tasks new ids.
+- Leave every checkbox unchecked ("- [ ]"); progress is tracked by the tooling.
+${planRevisionRules(options)}${PLAN_SHARED_RULES}`,
+    rules,
+  );
+}
+
+export function createPlanHandoffSystemPrompt(
+  options: { update?: boolean; feedback?: boolean } = {},
+  rules: string | null,
+): string {
+  return appendRules(
+    `You are writing the living handoff for a spec-driven plan: the memory a coding agent reads at the start of every session and updates after every task, so work survives across sessions and agents. You receive the approved requirements, design and tasks, the git state, and any previous handoff.
+
+Emit exactly these sections, in this order:
+
+${PLAN_HANDOFF_SECTIONS}
+
+Rules:
+- Describe the state as it is now. Never claim a task is done unless the commits or the checked tasks show it.
+- A status table and an append-only "## Log" are maintained by the tooling around your text — do not write a status table, a progress summary, or a "## Log" section.
+- "Next step" names one concrete action, usually "Implement T-n: <title>" for the first unchecked task whose dependencies are done.
+- Carry forward every unresolved spec delta, blocker and noticed item from the previous handoff; drop only what is resolved.
+- Short bullets, one fact each.
+${planRevisionRules(options)}${PLAN_SHARED_RULES}`,
+    rules,
+  );
+}

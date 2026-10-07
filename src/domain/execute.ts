@@ -8,6 +8,7 @@ import { dryRunBranch, runBranch } from "./branch.js";
 import { dryRunCommit, runCommit } from "./commit.js";
 import { dryRunContext, runContext } from "./context.js";
 import { dryRunDocs, runDocs } from "./docs.js";
+import { dryRunPlan, runPlan } from "./plan.js";
 import { dryRunPr, runPr } from "./pr.js";
 import { dryRunPrompt, runPrompt } from "./prompt.js";
 import { createChatSystemPrompt } from "./prompts.js";
@@ -18,12 +19,15 @@ import { runTemplateCommand } from "./template.js";
 export async function executeDryRun(
   command: CommandSpec,
   cwd: string,
+  flags: GlobalFlags | null = null,
 ): Promise<string> {
   switch (command.name) {
     case "pr":
       return dryRunPr(command, cwd);
     case "prompt":
       return dryRunPrompt(command, cwd);
+    case "plan":
+      return dryRunPlan(command, flags, cwd);
     case "commit":
       return dryRunCommit(command, cwd);
     case "branch":
@@ -64,6 +68,8 @@ export async function executeCommand(
       return runPr(command, flags, cwd, callbacks);
     case "prompt":
       return runPrompt(command, flags, cwd, callbacks);
+    case "plan":
+      return runPlan(command, flags, cwd, callbacks);
     case "commit":
       return runCommit(command, flags, cwd, callbacks);
     case "branch":
@@ -103,7 +109,8 @@ export async function executeCommand(
  *
  * This is a UI predicate, not the tier selector: each domain module picks its
  * own runner. `prompt` is absent despite being LLM-backed because a prompt run
- * produces no tool activity worth rendering.
+ * produces no tool activity worth rendering; `plan` is absent because its
+ * interactive flow (PlanFlow) renders its own read-only exploration log.
  */
 export function isAgenticCommand(command: CommandSpec): boolean {
   return (
@@ -115,7 +122,14 @@ export function isAgenticCommand(command: CommandSpec): boolean {
   );
 }
 
-/** template never needs credentials or a model. */
+/**
+ * Never needs credentials or a model: template management, and the plan's
+ * deterministic actions (approve a saved draft, sync progress, print the
+ * loop prompt).
+ */
 export function isOfflineCommand(command: CommandSpec): boolean {
-  return command.name === "template";
+  return (
+    command.name === "template" ||
+    (command.name === "plan" && command.action !== "generate")
+  );
 }

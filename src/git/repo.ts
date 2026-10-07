@@ -115,3 +115,48 @@ export async function getRecentCommits(
 ): Promise<string> {
   return runGit(cwd, ["log", `--max-count=${maxCount}`, "--oneline"]);
 }
+
+/** True when `relPath` (relative to the repo root) is excluded by gitignore. */
+export async function isPathIgnored(
+  repoRoot: string,
+  relPath: string,
+): Promise<boolean> {
+  // check-ignore exits 0 when ignored and 1 when not; tryGit maps 1 to null.
+  return (await tryGit(repoRoot, ["check-ignore", "-q", relPath])) !== null;
+}
+
+export type CommitSubject = { sha: string; subject: string };
+
+/**
+ * Commits on HEAD since `baseRef` (or the last `maxCount` commits when there
+ * is no base), newest first. Unlike getRangeLog this is structured, so the
+ * plan sync can match `[T-n]` task ids in subjects to commit SHAs.
+ */
+export async function getRangeSubjects(
+  cwd: string,
+  baseRef: string | null,
+  maxCount = 200,
+): Promise<CommitSubject[]> {
+  const range = baseRef ? [`${baseRef}..HEAD`] : [];
+  const output = await tryGit(cwd, [
+    "log",
+    ...range,
+    `--max-count=${maxCount}`,
+    "--format=%h%x09%s",
+  ]);
+
+  if (!output) {
+    return [];
+  }
+
+  return output
+    .split("\n")
+    .map((line) => {
+      const tab = line.indexOf("\t");
+
+      return tab === -1
+        ? null
+        : { sha: line.slice(0, tab), subject: line.slice(tab + 1) };
+    })
+    .filter((entry): entry is CommitSubject => entry !== null);
+}

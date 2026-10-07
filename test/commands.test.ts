@@ -132,6 +132,67 @@ describe("parseCommand", () => {
     expect(getHelpText()).toContain("sinscribe prompt");
   });
 
+  it("mentions plan in the help text", () => {
+    expect(getHelpText()).toContain("sinscribe plan [options]");
+  });
+
+  it("parses plan with defaults", () => {
+    expect(parseCommand(["plan"])).toMatchObject({
+      kind: "run",
+      command: {
+        name: "plan",
+        stage: null,
+        action: "generate",
+        explore: true,
+        feedback: null,
+      },
+    });
+  });
+
+  it("parses plan stage, feedback and --no-explore", () => {
+    expect(
+      parseCommand([
+        "plan",
+        "--stage",
+        "design",
+        "--feedback",
+        "reuse the queue",
+        "--no-explore",
+      ]),
+    ).toMatchObject({
+      command: {
+        name: "plan",
+        stage: "design",
+        feedback: "reuse the queue",
+        explore: false,
+      },
+    });
+  });
+
+  it.each([
+    [["--approve"], "approve"],
+    [["--sync"], "sync"],
+    [["--loop-prompt"], "loop-prompt"],
+  ])("parses plan %s as an offline action", (args, action) => {
+    expect(parseCommand(["plan", ...args])).toMatchObject({
+      command: { name: "plan", action },
+    });
+  });
+
+  it.each([
+    [["--stage", "build"], "--stage must be"],
+    [["--approve", "--sync"], "mutually exclusive"],
+    [["--sync", "--feedback", "x"], "--feedback only applies"],
+    [["--sync", "--stage", "tasks"], "--stage does not apply to --sync"],
+    [["--feedback"], "--feedback requires"],
+    [["--frobnicate"], "Unknown option for plan: --frobnicate"],
+  ])("rejects plan %j", (args, message) => {
+    const result = parseCommand(["plan", ...args]);
+
+    expect(result.kind).toBe("error");
+    expect(result.kind === "error" ? result.message : "").toContain(message);
+  });
+
   it("parses commit flags", () => {
     expect(parseCommand(["commit", "--all", "--no-gitmoji"])).toMatchObject({
       kind: "run",

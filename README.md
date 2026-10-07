@@ -108,6 +108,7 @@ The first interactive run asks for your provider API key and stores it in
 | `sinscribe commit`      | Conventional Commit + Gitmoji message from staged changes                       |
 | `sinscribe branch`      | Branch-name suggestions from a description/ticket                               |
 | `sinscribe prompt`      | Copy-ready feature/bugfix task prompt for your AI coding agent                  |
+| `sinscribe plan`        | Spec plan (SDD): requirements → design → tasks → handoff, plus an agent loop    |
 | `sinscribe context`     | Structured project-context brief (markdown or JSON)                             |
 | `sinscribe docs`        | Project documentation with mermaid diagrams                                     |
 | `sinscribe agents`      | Generate/refresh `CLAUDE.md` + `AGENTS.md` from the repo                        |
@@ -126,6 +127,12 @@ The first interactive run asks for your provider API key and stores it in
 | `prompt`      | `--type <type>`       | `feature` or `bugfix` (default: inferred from the description)                      |
 |               | `--out <file>`        | Write the prompt to a file                                                          |
 |               | `--handoff`           | Also write `HANDOFF.md` without asking                                              |
+| `plan`        | `--stage <stage>`     | `requirements`\|`design`\|`tasks`\|`handoff` (default: the next stage needing work) |
+|               | `--feedback <text>`   | Revise the stage's current version with this feedback                               |
+|               | `--no-explore`        | Never let the model read the repository (single-shot)                               |
+|               | `--approve`           | Approve the stage's saved draft — offline, no model call                            |
+|               | `--sync`              | Match `[T-n]` commits and checkboxes; refresh progress — offline                    |
+|               | `--loop-prompt`       | Print `LOOP_PROMPT.md` (e.g. to pipe into a coding agent) — offline                 |
 | `commit`      | `--all`, `-a`         | Use all tracked changes, not only staged                                            |
 |               | `--scope <scope>`     | Force the Conventional Commit scope                                                 |
 |               | `--no-gitmoji`        | Skip the gitmoji prefix (it is on by default)                                       |
@@ -175,6 +182,10 @@ sinscribe branch ABC-123 add retry logic to uploader   # → feat/ABC-123-... su
 # Prompts & project understanding
 sinscribe prompt --type bugfix uploader crashes on empty files
 sinscribe prompt --handoff -p "add retry logic"   # also writes HANDOFF.md
+sinscribe plan                                     # spec plan, stage by stage, in the TUI
+sinscribe plan -p --stage design --feedback "reuse the queue module"   # writes a draft
+sinscribe plan --approve --stage design            # approve it (offline)
+sinscribe plan --sync                              # progress from [T-n] commits + checkboxes
 sinscribe context --format json --out context.json
 sinscribe agents --target claude --update
 
@@ -211,6 +222,53 @@ labeled as such rather than presented as the current state.
 `--handoff` writes the file without asking — the only route in `-p/--print`
 and other non-TTY runs, which cannot ask. The file is yours to commit or
 ignore; Sinscribe never adds it to `.gitignore`.
+
+### Spec plan (`sinscribe plan`)
+
+Spec-driven development for the current branch, from its session context. Four
+documents are generated and approved **in order** — each one is reviewed
+(approve, modify with feedback, view full, save as draft) and the next is
+generated from the approved ones:
+
+| Stage | File              | Defines                                                                                          |
+| ----- | ----------------- | ------------------------------------------------------------------------------------------------ |
+| 1     | `requirements.md` | The what and why: `REQ-n` with testable `AC-n.m` criteria, assumptions, out of scope, boundaries |
+| 2     | `design.md`       | The how: decisions with alternatives, data/DB changes, affected APIs, mermaid sequences, risks   |
+| 3     | `tasks.md`        | Small verifiable tasks (`T-n`), each naming the ACs it implements and its exact verify command   |
+| 4     | `handoff.md`      | The implementation's memory: status, decisions, spec deltas, blockers, and an append-only log    |
+
+They live in `specs/<branch>/` with an `index.md` that links them and records
+which stage is approved — **tracked in git on purpose**, so the plan travels
+with the branch and a teammate can resume it (mind this in public repos). The
+index is written only by Sinscribe; every stage file links to the others.
+
+- **Grounded in the code.** Requirements and design let the model read the
+  repository first, read-only: with the Claude Code provider through `claude`
+  with only Read/Glob/Grep, confined to the repo (`--restricted`); with API-key
+  providers through a write-denied agent. `.env` files and keys are never
+  readable, and output is scanned for secrets. Kiro and `--no-explore` use a
+  single call with a repo brief (tracked files, scripts, `CLAUDE.md`/`AGENTS.md`).
+- **Traceable.** Approving `tasks.md` is blocked while a task references an AC
+  or task that does not exist, or the dependencies form a cycle; uncovered ACs,
+  oversized tasks and missing verify commands are flagged.
+- **Never silently stale.** Editing or regenerating a document marks everything
+  after it stale until it is regenerated (or the edit is accepted). Ticking a
+  task's checkbox is progress, not an edit.
+
+**The implementation loop.** Approving the tasks writes `LOOP_PROMPT.md`: the
+operating contract for your coding agent (Claude Code, Codex, …). The agent
+takes one task at a time in dependency order, verifies it with its command,
+ticks it, logs it in `handoff.md`, commits it with `[T-n]` in the subject
+(unless your rules forbid commits), and stops at checkpoints, blockers, or
+anything the spec does not decide — which it records as a _spec delta_ instead
+of editing the spec. It finishes only when every task is checked and every AC
+is verified. Hand it over with **Copy loop prompt** in the menu, or
+`sinscribe plan --loop-prompt`. As work lands, **Sync progress**
+(`--sync`) refreshes the status in `handoff.md` and `index.md` from the
+checkboxes and commits, without touching the log; regenerating the handoff
+feeds the agent's log back into it.
+
+Sinscribe does not run the loop itself (yet): the agent you already use does.
 
 ## Configuration
 
@@ -387,8 +445,9 @@ library with `sinscribe template list | show | add | edit | path`.
 
 The menu (bare `sinscribe`) is **context-first**: on a branch with no saved
 context it opens straight into the context form, and the "Create PR
-description", "Create branch name", and "Create feature or bugfix prompt" items
-ask for a context before they run. A session captures **business context** per
+description", "Create branch name", "Create feature or bugfix prompt" and
+"Spec plan (SDD)" items ask for a context before they run (a spec plan already
+in `specs/<branch>/` carries its own feature, so it opens without one). A session captures **business context** per
 branch — feature description, ticket ID, requirements, and the **target branch**
 it merges into — stored in `<repo>/.sinscribe/sessions/<branch>.json`.
 

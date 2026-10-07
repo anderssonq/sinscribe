@@ -8,6 +8,7 @@ export type MenuChoice =
   | "clear"
   | "pr"
   | "prompt"
+  | "plan"
   | "branch"
   | "docs"
   | "agent-setup"
@@ -71,6 +72,12 @@ export const MENU_ITEMS: MenuItem[] = [
     id: "prompt",
     label: "Create feature or bugfix prompt",
     hint: "Generate a copy-ready task prompt for your AI coding agent",
+    section: "GIT",
+  },
+  {
+    id: "plan",
+    label: "Spec plan (SDD)",
+    hint: "Requirements → design → tasks → handoff, then a loop prompt for your coding agent",
     section: "GIT",
   },
   {
@@ -171,6 +178,8 @@ export function buildMenuItems(input: {
   targetBase: string | null;
   /** Agent definitions already in .claude/agents (0 when none or unknown). */
   agentFiles?: number;
+  /** The branch's spec plan state, or null/undefined when there is none. */
+  plan?: { approved: number; tasksDone: number; tasksTotal: number } | null;
 }): MenuItem[] {
   return MENU_ITEMS.map((item) => {
     switch (item.id) {
@@ -196,6 +205,23 @@ export function buildMenuItems(input: {
               done: true,
               label: "Rename branch",
               hint: "Pick a new name for the current branch (git branch -m)",
+            }
+          : item;
+      case "plan":
+        return input.plan && input.plan.approved > 0
+          ? {
+              ...item,
+              done:
+                input.plan.approved === 4 &&
+                input.plan.tasksTotal > 0 &&
+                input.plan.tasksDone === input.plan.tasksTotal,
+              label: "Resume spec plan (SDD)",
+              hint:
+                `${input.plan.approved}/4 stages approved` +
+                (input.plan.tasksTotal > 0
+                  ? ` · tasks ${input.plan.tasksDone}/${input.plan.tasksTotal}`
+                  : "") +
+                " — continue, sync progress, or regenerate a stage",
             }
           : item;
       case "agent-setup":

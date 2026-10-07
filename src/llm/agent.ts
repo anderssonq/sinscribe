@@ -1,7 +1,12 @@
 import { createHash } from "node:crypto";
 import path from "node:path";
 import { MemorySaver } from "@langchain/langgraph";
-import { createDeepAgent, LocalShellBackend } from "deepagents";
+import {
+  createDeepAgent,
+  FilesystemBackend,
+  type FilesystemPermission,
+  LocalShellBackend,
+} from "deepagents";
 import {
   getProviderAuthKind,
   getProviderLabel,
@@ -10,6 +15,7 @@ import {
   SECRET_ENV_KEYS,
 } from "../constants.js";
 import { CliError } from "../domain/errors.js";
+import { EXPLORE_DENY_GLOBS } from "./claude-cli/explore.js";
 import { toFriendlyError } from "./errors.js";
 import {
   emitDebug,
@@ -21,6 +27,7 @@ import {
 import { resolveModel } from "./model.js";
 import {
   createInactivityWatchdog,
+  EXPLORE_TOTAL_MS,
   LLM_INACTIVITY_MS,
   raceAbort,
 } from "./watchdog.js";
@@ -167,6 +174,145 @@ export async function runAgent(
     text: parts.join("").trim(),
     modelId,
   };
+}
+
+/**
+ * Permission rules for the read-only explorer: every write is denied, and
+ * secret-bearing paths cannot be read (grep/glob/ls results are filtered by
+ * the same rules). Paths are deepagents' virtual absolute paths under the
+ * repo root. Each glob is listed both rooted and at any depth, so a
+ * root-level match never depends on how a globstar treats zero segments.
+ */
+export function buildReadOnlyPermissions(): FilesystemPermission[] {
+  const readDenies = EXPLORE_DENY_GLOBS.flatMap((glob) => {
+    const rooted = glob.replace(/^\*\*\//u, "");
+
+    return [`/${glob}`, `/${rooted}`];
+  });
+
+  return [
+    { operations: ["write"], paths: ["/**"], mode: "deny" },
+    { operations: ["read"], paths: [...new Set(readDenies)], mode: "deny" },
+  ];
+}
+
+export type ReadOnlyAgentResult = AgentRunResult & { filesRead: string[] };
+
+/**
+ * The deepagents loop as a READ-ONLY explorer, for the spec plan's
+ * requirements/design stages on API-key providers. FilesystemBackend is not
+ * a sandbox, so no `execute` (shell) tool exists; the permissions deny every
+ * write and the secret paths; and deepagents itself refuses permissions on a
+ * backend that can execute commands. A fresh MemorySaver keeps this run out
+ * of chat's history.
+ */
+export async function runReadOnlyAgent(
+  systemPrompt: string,
+  userMessage: string,
+  repoRoot: string,
+  options: AgentRunOptions = {},
+): Promise<ReadOnlyAgentResult> {
+  const threadId = createThreadId(repoRoot);
+  const { model, modelId, provider } = await resolveModel({
+    modelId: options.modelId ?? null,
+    provider: options.provider ?? null,
+    apiKey: options.apiKey ?? null,
+    sessionId: threadId,
+  });
+
+  if (!providerSupportsAgentic(provider)) {
+    throw new CliError(
+      `The ${getProviderLabel(provider)} provider cannot explore through ` +
+        `the agent loop.`,
+    );
+  }
+
+  emitDebug(options, `explore provider=${provider} model=${modelId}`);
+
+  const agent = createDeepAgent({
+    model,
+    tools: [],
+    checkpointer: new MemorySaver(),
+    backend: new FilesystemBackend({
+      rootDir: repoRoot,
+      virtualMode: true,
+      maxFileSizeMb: 1,
+    }),
+    permissions: buildReadOnlyPermissions(),
+    systemPrompt,
+  });
+  const watchdog = createInactivityWatchdog({
+    inactivityMs: LLM_INACTIVITY_MS,
+    totalMs: EXPLORE_TOTAL_MS,
+  });
+  const filesRead = new Set<string>();
+  // Only the root agent's text after its LAST tool call is the answer;
+  // earlier text is narration ("Let me look at…").
+  let parts: string[] = [];
+
+  try {
+    const stream = await agent.stream(
+      { messages: [{ role: "user", content: userMessage }] },
+      {
+        configurable: { thread_id: threadId },
+        signal: watchdog.signal,
+        streamMode: ["messages", "tools"],
+        subgraphs: true,
+      },
+    );
+
+    for await (const chunk of raceAbort(stream, watchdog)) {
+      watchdog.touch();
+
+      const event = parseStreamEvent(chunk);
+
+      if (!event) {
+        continue;
+      }
+
+      if (event.type === "text") {
+        if (isRootChunk(chunk)) {
+          parts.push(event.text);
+        }
+
+        continue;
+      }
+
+      if (event.type === "tool_start") {
+        parts = [];
+
+        const file = /file_path="([^"]+)"/u.exec(event.call)?.[1];
+
+        if (event.name === "read_file" && file) {
+          filesRead.add(file.replace(/^\//u, ""));
+        }
+      }
+
+      options.onEvent?.(event);
+    }
+
+    if (watchdog.timeoutError !== null) {
+      throw watchdog.timeoutError;
+    }
+  } catch (error) {
+    throw toFriendlyError(error, {
+      providerLabel: getProviderLabel(provider),
+      authKind: getProviderAuthKind(provider),
+    });
+  } finally {
+    watchdog.dispose();
+  }
+
+  return { text: parts.join("").trim(), modelId, filesRead: [...filesRead] };
+}
+
+/** True for chunks from the top-level graph (not a subagent's subgraph). */
+function isRootChunk(chunk: unknown): boolean {
+  if (!Array.isArray(chunk) || chunk.length < 3 || !Array.isArray(chunk[0])) {
+    return true;
+  }
+
+  return (chunk[0] as unknown[]).length === 0;
 }
 
 /**

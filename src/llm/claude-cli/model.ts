@@ -258,7 +258,7 @@ export function splitMessages(messages: BaseMessage[]): {
   return { system: systemParts.join("\n\n"), prompt: rest.join("\n\n") };
 }
 
-function toSpawnError(failure: Error, command: string): CliError {
+export function toSpawnError(failure: Error, command: string): CliError {
   if ((failure as NodeJS.ErrnoException).code === "ENOENT") {
     return new CliError(
       `The ${command} CLI is not installed or not on PATH — ${NOT_INSTALLED_HINT}`,
