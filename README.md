@@ -47,7 +47,9 @@ one-shot command or an interactive chat agent.
   an agent that explores the repo.
 - **Interactive chat** over the current repository.
 - **Per-branch sessions** that capture business context (feature, ticket,
-  requirements, target branch) and feed it to every generation.
+  requirements, target branch) and feed it to every generation — typed by
+  hand, or drafted by the AI from your direction and the repo's code and docs,
+  then reviewed and approved by you.
 - **Customizable templates** — six built-in house styles plus your own, with
   typed placeholders filled deterministically from git or by the model.
 - **Deterministic `--dry-run`** on every command: no model call, no credentials
@@ -448,12 +450,41 @@ library with `sinscribe template list | show | add | edit | path`.
 ## Sessions
 
 The menu (bare `sinscribe`) is **context-first**: on a branch with no saved
-context it opens straight into the context form, and the "Create PR
-description", "Create branch name", "Create feature or bugfix prompt" and
-"Spec plan (SDD)" items ask for a context before they run (a spec plan already
+context it asks how to create one — generated with AI or written by hand — and
+the "Create PR description", "Create branch name", "Create feature or bugfix
+prompt" and "Spec plan (SDD)" items ask the same before they run (a spec plan already
 in `specs/<branch>/` carries its own feature, so it opens without one). A session captures **business context** per
 branch — feature description, ticket ID, requirements, and the **target branch**
 it merges into — stored in `<repo>/.sinscribe/sessions/<branch>.json`.
+
+### Generating the context with AI
+
+**Generate session context with AI** (or **Regenerate**, once one exists)
+drafts the context instead of you typing every field — but you steer it:
+
+1. **Direction.** You say what the session is for and what it should achieve —
+   one line is enough; paste ticket text, rules or the name of a report if you
+   have them. Before you type, the screen shows what the AI will see: branch,
+   detected ticket, commits, changed files, markdown docs, `HANDOFF.md`.
+2. **Evidence.** The AI looks for code and markdown documents (reports, notes,
+   specs, handoffs) related to your direction — **read-only**: with the Claude
+   Code provider through `claude --restricted` with Read/Glob/Grep, with API-key
+   providers through a write-denied agent; other providers (Kiro) get the repo
+   brief plus excerpts of the matching docs instead. `.env` files and keys are
+   never readable. You can also pick "Don't read the code" for a faster draft.
+3. **Review.** The draft shows the feature (your direction first), ticket,
+   target, requirements, the **sources** it used and the **open questions** the
+   repository could not answer. From there: **refine the goal**, **add details
+   / answer questions**, **look again in the repository**, edit it by hand in
+   the usual form, approve it, or cancel. Nothing is saved until you approve.
+
+The approved context is a normal session: sources (and any open questions you
+chose to keep) are appended to the requirements, so `pr`, `prompt`, `branch`
+and `plan` use it like a typed one. The target branch is never the model's
+choice, and a ticket is kept only when the branch name or the evidence
+contains it.
+
+### How sessions are used
 
 - **`pr`** describes your local changes vs the target branch, from the merge
   base up — so it works before you commit, and commits that landed on the target

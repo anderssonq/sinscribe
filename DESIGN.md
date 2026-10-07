@@ -203,7 +203,8 @@ the gaps it leaves to prose:
   `claude -p` with edit/test tools per task, in a worktree, with a budget cap —
   is the follow-up; it needs per-task tool allowlists derived from Verify
   commands before it is safe.
-- **Tier 3 (read-only explore) exists for this command only.** Requirements
+- **Tier 3 (read-only explore) serves two features: this one and the AI
+  session draft (§5c).** Requirements
   and design are better grounded in the code, but the user's CLI providers
   must keep working, so the claude CLI explores with `--restricted --tools
 Read,Glob,Grep` (verified on 2.1.293: out-of-repo reads and `.env` reads —
@@ -215,6 +216,33 @@ Read,Glob,Grep` (verified on 2.1.293: out-of-repo reads and `.env` reads —
 - **`specs/` is tracked** (unlike `HANDOFF.md`/`AGENT_PROMPT.md`): the plan is
   part of the branch's work. Public repos publish their plans; the dry run
   shows whether the directory is ignored.
+
+## 5c. AI session context (menu, 2026-10-07)
+
+Writing the session context by hand is where a branch's work usually starts,
+and most of what it needs is already in the repository. The menu can draft it.
+
+- **The author gives the direction; the AI backs it.** The direction (what the
+  session is for) is required and kept in the author's words at the start of
+  `feature` — enforced in code for a short direction, not left to the prompt.
+  The model's job is evidence: code and markdown documents (reports, notes,
+  specs, handoffs) related to the direction.
+- **Tier 3, not a new tier.** The first round explores read-only, so every
+  provider works: claude CLI and API-key providers read the code; the rest get
+  single-shot with the repo brief plus a docs digest (tracked `.md` files and
+  excerpts of the ones matching the direction or ticket). Feedback rounds are
+  single-shot over the previous draft; "look again" explores again.
+- **The preview is where the goal is settled.** It shows sources and open
+  questions; the author can refine the goal, add details or answers, send the
+  AI back into the repository, edit by hand, approve or cancel. Nothing is
+  written before approval.
+- **Code owns what the model cannot be trusted with.** The target branch is
+  never the model's; a ticket survives only if the branch or the evidence
+  contains it; a source survives only if it is a tracked, non-secret file;
+  every field is redacted.
+- **No schema change.** Sources (and open questions, when saved unanswered)
+  ride at the end of `requirements`, so `pr`, `prompt`, `branch` and `plan`
+  read the drafted context exactly like a typed one.
 
 ## 6. Open decisions (defaults chosen, flag if you disagree)
 

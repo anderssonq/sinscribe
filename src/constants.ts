@@ -314,10 +314,11 @@ export function providerSupportsAgentic(provider: SinscribeProvider): boolean {
 }
 
 /**
- * How the read-only explore tier (spec plan requirements/design) reads the
- * repository with this provider: through the claude CLI's own read-only
- * tools, through a deepagents FilesystemBackend with write-deny permissions
- * ("agent"), or not at all ("none" — single-shot with an enriched context).
+ * How the read-only explore tier (spec plan requirements/design, the AI
+ * session-context draft) reads the repository with this provider: through
+ * the claude CLI's own read-only tools, through a deepagents
+ * FilesystemBackend with write-deny permissions ("agent"), or not at all
+ * ("none" — single-shot with an enriched context).
  */
 export type ExploreKind = "claude-cli" | "agent" | "none";
 

@@ -11,10 +11,10 @@ import { runSingleShot, type SingleShotOptions } from "./single-shot.js";
 
 /**
  * The read-only explore tier: the model may read the repository (never
- * write, never run anything) before answering. Used only by the spec plan's
- * requirements and design stages. Every path ends in the same contract —
- * one final markdown document — and every path has a single-shot fallback,
- * so no provider is locked out:
+ * write, never run anything) before answering. Used by the spec plan's
+ * requirements and design stages and by the AI session-context draft. Every
+ * path ends in the same contract — one final document — and every path has a
+ * single-shot fallback, so no provider is locked out:
  *
  * - claude-cli: the CLI's own Read/Glob/Grep under --restricted (repo-confined)
  * - api-key providers: deepagents FilesystemBackend with write-deny permissions

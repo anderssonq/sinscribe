@@ -566,3 +566,37 @@ ${planRevisionRules(options)}${PLAN_SHARED_RULES}`,
     rules,
   );
 }
+
+/** The JSON the session-context draft must return, field by field. */
+export const SESSION_DRAFT_SHAPE = `{
+  "feature": "the author's direction, kept in their words, then the why and the scope it implies",
+  "requirements": "acceptance criteria and business/technical rules found in the evidence, as a markdown list — or null when there is no evidence for any",
+  "ticket": "a ticket id that appears literally in the evidence, or null",
+  "sources": [{ "path": "repo-relative path you used", "why": "what it contributed" }],
+  "openQuestions": ["what the repository cannot answer and the author must decide"]
+}`;
+
+export function createSessionDraftSystemPrompt(
+  options: { update?: boolean; feedback?: boolean } = {},
+  rules: string | null,
+): string {
+  return appendRules(
+    `You help a developer write the session context for the git branch they are about to work on: the business context every later step (PR descriptions, agent prompts, spec plans) is grounded in. The developer gives the direction — what this session is for and what it should achieve. Your job is to back that direction with evidence from the repository, not to decide it.
+
+Return exactly this JSON shape:
+
+${SESSION_DRAFT_SHAPE}
+
+Rules:
+- The direction is the author's decision. Keep its intent and wording at the start of "feature"; expand it with the why and the scope, never replace or redirect it.
+- Look for evidence related to the direction: source code, and markdown documents such as reports, notes, specs, ADRs, handoffs, READMEs and changelogs that mention the topic or the ticket. Prefer documents the author named.
+- Ground every line in the evidence you were given or read. Never invent acceptance criteria, files, APIs or behavior. A criterion you inferred rather than read is written as "Assumption: …".
+- List in "sources" only files you actually used, with one short reason each. Never list a file you did not see.
+- Whatever the evidence cannot settle — ambiguous scope, conflicting documents, a missing rule — goes to "openQuestions" as a short question the author can answer. Do not resolve it silently.
+- What the author states — in the direction or in feedback — is evidence too, and the strongest: every criterion, rule, limit or answer they give goes into "requirements" as its own line, not only into "feature".
+- "requirements" is null only when neither the author nor the repository supports a single criterion. Do not pad it.
+- Write in the language of the author's direction.
+${options.update ? "- You will receive the previous draft. Revise it: keep what is still accurate, change what the new input requires, and return the complete JSON (full replacement, not a patch).\n" : ""}${options.feedback ? '- The author reviewed the previous draft and gave feedback. Apply every point of it. Answers to open questions become requirements or scope and leave "openQuestions"; a changed goal changes "feature".\n' : ""}- ${JSON_ONLY_INSTRUCTION}`,
+    rules,
+  );
+}
