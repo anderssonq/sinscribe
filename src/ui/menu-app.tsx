@@ -10,6 +10,7 @@ import {
   getProviderApiKeyEnvKey,
   getProviderAuthKind,
   getProviderCommand,
+  getProviderCustomModelHint,
   getProviderLabel,
   getProviderModelOptions,
   isProviderRecommended,
@@ -176,7 +177,7 @@ type MenuView =
   | { view: "agent-setup-run" }
   | {
       view: "settings";
-      step: "provider" | "model" | "key";
+      step: "provider" | "model" | "model-custom" | "key";
       draft: SettingsDraft;
     }
   | {
@@ -230,6 +231,16 @@ function providerHint(provider: SinscribeProvider): string {
  */
 function nextSettingsStep(provider: SinscribeProvider): "key" | null {
   return getProviderAuthKind(provider) === "local-cli" ? null : "key";
+}
+
+/** Picker row that opens free-text entry instead of naming a model. */
+const CUSTOM_MODEL_ITEM_ID = "\u0000custom-model";
+
+/** Whether the model id is one of the provider's listed options. */
+function isListedModel(provider: SinscribeProvider, modelId: string): boolean {
+  return getProviderModelOptions(provider).some(
+    (option) => option.id === modelId,
+  );
 }
 
 /** Menu runs always start the prompt flow with its own type/describe steps. */
@@ -1404,42 +1415,73 @@ export function MenuApp({
                 title="Pick an AI provider"
               />
             ) : null}
-            {mode.step === "model" ? (
-              getProviderModelOptions(mode.draft.provider).length === 0 ? (
-                <InlinePrompt
-                  initialValue={mode.draft.modelId}
-                  isActive
-                  key={mode.draft.provider}
-                  label={`Model ID for ${getProviderLabel(mode.draft.provider)}`}
-                  onCancel={goToMenu}
-                  onSubmit={(value) => {
-                    if (!isValidModelId(value)) {
-                      showError("AI settings", `Invalid model ID: ${value}`);
-                      return;
-                    }
+            {mode.step === "model-custom" ||
+            (mode.step === "model" &&
+              getProviderModelOptions(mode.draft.provider).length === 0) ? (
+              <InlinePrompt
+                initialValue={
+                  isListedModel(mode.draft.provider, mode.draft.modelId)
+                    ? ""
+                    : mode.draft.modelId
+                }
+                isActive
+                key={`${mode.draft.provider}:${mode.step}`}
+                label={`Model ID for ${getProviderLabel(mode.draft.provider)}`}
+                onCancel={goToMenu}
+                onSubmit={(value) => {
+                  if (!isValidModelId(value)) {
+                    showError("AI settings", `Invalid model ID: ${value}`);
+                    return;
+                  }
 
-                    advanceAfterModel({ ...mode.draft, modelId: value });
-                  }}
-                  placeholder="e.g. my-custom-model-id"
-                />
-              ) : (
-                <SelectList
-                  initialId={mode.draft.modelId}
-                  isActive
-                  items={getProviderModelOptions(mode.draft.provider).map(
+                  advanceAfterModel({ ...mode.draft, modelId: value.trim() });
+                }}
+                placeholder={
+                  getProviderCustomModelHint(mode.draft.provider) ??
+                  "e.g. my-custom-model-id"
+                }
+              />
+            ) : null}
+            {mode.step === "model" &&
+            getProviderModelOptions(mode.draft.provider).length > 0 ? (
+              <SelectList
+                initialId={
+                  isListedModel(mode.draft.provider, mode.draft.modelId)
+                    ? mode.draft.modelId
+                    : CUSTOM_MODEL_ITEM_ID
+                }
+                isActive
+                items={[
+                  ...getProviderModelOptions(mode.draft.provider).map(
                     (option) => ({
                       id: option.id,
                       label: option.label,
                       hint: option.id,
                     }),
-                  )}
-                  onCancel={goToMenu}
-                  onSelect={(modelId) => {
-                    advanceAfterModel({ ...mode.draft, modelId });
-                  }}
-                  title={`Pick a model for ${getProviderLabel(mode.draft.provider)}`}
-                />
-              )
+                  ),
+                  {
+                    id: CUSTOM_MODEL_ITEM_ID,
+                    label: "Custom model ID…",
+                    hint: isListedModel(mode.draft.provider, mode.draft.modelId)
+                      ? "type any id the provider accepts"
+                      : `current: ${mode.draft.modelId}`,
+                  },
+                ]}
+                onCancel={goToMenu}
+                onSelect={(modelId) => {
+                  if (modelId === CUSTOM_MODEL_ITEM_ID) {
+                    setMode({
+                      view: "settings",
+                      step: "model-custom",
+                      draft: mode.draft,
+                    });
+                    return;
+                  }
+
+                  advanceAfterModel({ ...mode.draft, modelId });
+                }}
+                title={`Pick a model for ${getProviderLabel(mode.draft.provider)}`}
+              />
             ) : null}
             {mode.step === "key" ? (
               <InlinePrompt

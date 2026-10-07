@@ -81,6 +81,11 @@ type ProviderConfigBase = {
   /** Marked with a "(Recommended)" suffix in the provider picker. */
   recommended?: boolean;
   modelOptions: ProviderModelOption[];
+  /**
+   * Example shown when the user types a model id outside
+   * {@link ProviderConfigBase.modelOptions} ("Custom model ID…").
+   */
+  customModelHint?: string;
 };
 
 type ApiKeyProviderConfig = ProviderConfigBase & {
@@ -211,8 +216,9 @@ export const PROVIDER_CONFIGS: Record<SinscribeProvider, ProviderConfig> = {
     supportsAgentic: false,
     label: "Amazon Q Developer (Kiro CLI)",
     recommended: true,
-    // Straight from `kiro-cli chat --list-models`; the multiplier is the
-    // credit cost per call, surfaced so the cheap options are obvious.
+    // Straight from `kiro-cli chat --list-models` (kiro-cli 2.3.0); the
+    // multiplier is the credit cost per call, surfaced so the cheap options
+    // are obvious. Newer ids go through "Custom model ID…" in the picker.
     modelOptions: [
       { id: "auto", label: "Kiro default — chosen per task (1.00x)" },
       { id: "qwen3-coder-next", label: "Qwen3 Coder Next (0.05x)" },
@@ -224,6 +230,8 @@ export const PROVIDER_CONFIGS: Record<SinscribeProvider, ProviderConfig> = {
       { id: "claude-sonnet-4", label: "Claude Sonnet 4 (1.30x)" },
       { id: "claude-sonnet-4.5", label: "Claude Sonnet 4.5 (1.30x)" },
     ],
+    customModelHint:
+      "e.g. claude-sonnet-4.5 — see `kiro-cli chat --list-models`",
   },
   "claude-cli": {
     authKind: "local-cli",
@@ -241,6 +249,7 @@ export const PROVIDER_CONFIGS: Record<SinscribeProvider, ProviderConfig> = {
       { id: "opus", label: "Opus — most capable" },
       { id: "fable", label: "Fable" },
     ],
+    customModelHint: "an alias (opus) or a full name (claude-opus-5-5)",
   },
 };
 
@@ -342,6 +351,13 @@ export function getProviderModelOptions(
   provider: SinscribeProvider,
 ): ProviderModelOption[] {
   return getProviderConfig(provider).modelOptions;
+}
+
+/** Example text for a typed-in model id, or null when the provider has none. */
+export function getProviderCustomModelHint(
+  provider: SinscribeProvider,
+): string | null {
+  return getProviderConfig(provider).customModelHint ?? null;
 }
 
 export function getDefaultModelId(provider: SinscribeProvider): string {

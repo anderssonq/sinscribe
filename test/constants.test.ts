@@ -6,6 +6,7 @@ import {
   getProviderApiKeyEnvKey,
   getProviderAuthKind,
   getProviderCommand,
+  getProviderCustomModelHint,
   getProviderLabel,
   getProviderModelOptions,
   isProviderRecommended,
@@ -170,6 +171,18 @@ describe("claude-cli provider config", () => {
   it("is a valid, selectable provider", () => {
     expect(isValidProvider("claude-cli")).toBe(true);
     expect(SELECTABLE_PROVIDERS).toContain("claude-cli");
+  });
+});
+
+describe("custom model hints", () => {
+  // Shown as the placeholder of the picker's "Custom model ID…" entry.
+  it("guides the local-cli providers toward their own model ids", () => {
+    expect(getProviderCustomModelHint("kiro-cli")).toMatch(/--list-models/u);
+    expect(getProviderCustomModelHint("claude-cli")).toMatch(/opus/u);
+  });
+
+  it("has no hint for providers that do not set one", () => {
+    expect(getProviderCustomModelHint("openrouter")).toBeNull();
   });
 });
 

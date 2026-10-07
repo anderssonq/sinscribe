@@ -25,6 +25,7 @@ vi.mock("node:os", async (importOriginal) => {
 
 const OPENCODE_KEY = "OPENCODE_API_KEY";
 const MODEL_ID_KEY = "SINSCRIBE_MODEL_ID";
+const PROVIDER_KEY = "SINSCRIBE_PROVIDER";
 
 describe("resolveProviderApiKey", () => {
   const original = process.env[OPENCODE_KEY];
@@ -70,17 +71,48 @@ describe("resolveProviderApiKey", () => {
 
 describe("resolveModelId", () => {
   const originalModelId = process.env[MODEL_ID_KEY];
+  const originalProvider = process.env[PROVIDER_KEY];
 
   beforeEach(() => {
     delete process.env[MODEL_ID_KEY];
+    delete process.env[PROVIDER_KEY];
   });
 
   afterEach(() => {
-    if (originalModelId === undefined) {
-      delete process.env[MODEL_ID_KEY];
-    } else {
-      process.env[MODEL_ID_KEY] = originalModelId;
+    for (const [key, value] of [
+      [MODEL_ID_KEY, originalModelId],
+      [PROVIDER_KEY, originalProvider],
+    ] as const) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
     }
+  });
+
+  it("uses the saved model id for the saved provider", () => {
+    process.env[PROVIDER_KEY] = "kiro-cli";
+    process.env[MODEL_ID_KEY] = "claude-sonnet-4.5";
+
+    expect(resolveModelId(null, "kiro-cli")).toBe("claude-sonnet-4.5");
+  });
+
+  it("ignores another provider's saved model id", () => {
+    process.env[PROVIDER_KEY] = "opencode-go";
+    process.env[MODEL_ID_KEY] = "glm-5.2";
+
+    expect(resolveModelId(null, "kiro-cli")).toBe("auto");
+    expect(resolveModelId(null, "claude-cli")).toBe("sonnet");
+  });
+
+  it("accepts ids outside the provider's listed options", () => {
+    expect(resolveModelId("claude-opus-5-5", "claude-cli")).toBe(
+      "claude-opus-5-5",
+    );
+    expect(resolveModelId("qwen3-coder-480b", "kiro-cli")).toBe(
+      "qwen3-coder-480b",
+    );
   });
 
   it("uses the explicit override when given", () => {
@@ -168,5 +200,19 @@ describe("local-cli providers", () => {
     const { model } = await resolveModel({ provider: "kiro-cli" });
 
     expect(model).toBeInstanceOf(ChatKiroCli);
+  });
+
+  it("hands a custom model id straight to the child CLI", async () => {
+    const kiro = await resolveModel({
+      provider: "kiro-cli",
+      modelId: "claude-sonnet-4.5",
+    });
+    const claude = await resolveModel({
+      provider: "claude-cli",
+      modelId: "claude-opus-5-5",
+    });
+
+    expect((kiro.model as ChatKiroCli).model).toBe("claude-sonnet-4.5");
+    expect((claude.model as ChatClaudeCli).model).toBe("claude-opus-5-5");
   });
 });
