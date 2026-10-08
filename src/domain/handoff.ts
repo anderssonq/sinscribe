@@ -1,4 +1,4 @@
-import { writeFile } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { GlobalFlags } from "../commands.js";
 import type { RunCallbacks } from "../llm/events.js";
@@ -94,7 +94,7 @@ function buildHandoffUserPrompt(
 export type HandoffRun = {
   /** One generation. Pass feedback to revise the last draft; null generates fresh. */
   generate(feedback: string | null, callbacks?: RunCallbacks): Promise<string>;
-  /** Writes HANDOFF.md at the repo root. Returns the path written. */
+  /** Writes .sinscribe/handoff.md. Returns the path written. */
   save(): Promise<string>;
 };
 
@@ -150,6 +150,7 @@ export function createHandoffRun(
 
     const handoffPath = getHandoffPath(input.repoRoot);
 
+    await mkdir(path.dirname(handoffPath), { recursive: true });
     await writeFile(
       handoffPath,
       buildHandoffMarkdown({

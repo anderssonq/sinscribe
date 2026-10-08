@@ -20,9 +20,11 @@ const BODY = [
 ].join("\n");
 
 describe("getHandoffPath", () => {
-  it("joins the fixed filename onto the repo root", () => {
-    expect(getHandoffPath("/repo")).toBe(path.join("/repo", "HANDOFF.md"));
-    expect(HANDOFF_FILENAME).toBe("HANDOFF.md");
+  it("joins the lowercase filename onto the repo's .sinscribe dir", () => {
+    expect(getHandoffPath("/repo")).toBe(
+      path.join("/repo", ".sinscribe", "handoff.md"),
+    );
+    expect(HANDOFF_FILENAME).toBe("handoff.md");
   });
 });
 
@@ -109,6 +111,7 @@ describe("loadHandoff", () => {
 
   beforeEach(async () => {
     repo = await makeTempDir("sinscribe-handoff-");
+    await mkdir(path.dirname(getHandoffPath(repo)), { recursive: true });
   });
 
   afterEach(async () => {
@@ -152,6 +155,28 @@ describe("loadHandoff", () => {
 
     expect(parsed?.branch).toBe("feature/login");
     expect(parsed?.body).toContain("## Where things stand");
+  });
+
+  it("falls back to a legacy HANDOFF.md at the repo root", async () => {
+    await writeFile(
+      path.join(repo, "HANDOFF.md"),
+      buildHandoffMarkdown({
+        projectName: "sinscribe",
+        branch: "feature/legacy",
+        ticket: null,
+        body: BODY,
+      }),
+      "utf8",
+    );
+
+    expect((await loadHandoff(repo))?.branch).toBe("feature/legacy");
+  });
+
+  it("prefers .sinscribe/handoff.md over a legacy root HANDOFF.md", async () => {
+    await writeFile(path.join(repo, "HANDOFF.md"), "# Old\n\nstale", "utf8");
+    await writeFile(getHandoffPath(repo), "# New\n\ncurrent", "utf8");
+
+    expect((await loadHandoff(repo))?.body).toContain("current");
   });
 
   it("propagates a non-ENOENT read failure instead of hiding it", async () => {

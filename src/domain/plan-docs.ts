@@ -1,6 +1,10 @@
 import { createHash } from "node:crypto";
 import path from "node:path";
-import { CLI_DISPLAY_NAME, SINSCRIBE_VERSION } from "../constants.js";
+import {
+  CLI_DISPLAY_NAME,
+  SINSCRIBE_DIRNAME,
+  SINSCRIBE_VERSION,
+} from "../constants.js";
 import { sanitizeBranchKey } from "../session/store.js";
 
 /**
@@ -29,7 +33,7 @@ export const PLAN_FILES = {
   tasks: "tasks.md",
   handoff: "handoff.md",
   index: "index.md",
-  loop: "LOOP_PROMPT.md",
+  loop: "loop-prompt.md",
 } as const;
 
 export type PlanFileId = keyof typeof PLAN_FILES;
@@ -53,19 +57,25 @@ export const UPSTREAM: Record<PlanStageId, PlanStageId | null> = {
   handoff: "tasks",
 };
 
+/** Plans live in .sinscribe/specs/; releases before that used ./specs/. */
 export const PLAN_ROOT_DIRNAME = "specs";
 
 export function isPlanStage(value: string): value is PlanStageId {
   return (PLAN_STAGES as readonly string[]).includes(value);
 }
 
-/** Repo-relative plan directory, e.g. `specs/feat-login`. */
+/** Repo-relative plan directory, e.g. `.sinscribe/specs/feat-login`. */
 export function getPlanDirRel(branch: string): string {
-  return `${PLAN_ROOT_DIRNAME}/${sanitizeBranchKey(branch)}`;
+  return `${SINSCRIBE_DIRNAME}/${PLAN_ROOT_DIRNAME}/${sanitizeBranchKey(branch)}`;
 }
 
 export function getPlanDir(repoRoot: string, branch: string): string {
-  return path.join(repoRoot, PLAN_ROOT_DIRNAME, sanitizeBranchKey(branch));
+  return path.join(repoRoot, ...getPlanDirRel(branch).split("/"));
+}
+
+/** Repo-relative pre-.sinscribe/ plan directory, e.g. `specs/feat-login`. */
+export function getLegacyPlanDirRel(branch: string): string {
+  return `${PLAN_ROOT_DIRNAME}/${sanitizeBranchKey(branch)}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -983,7 +993,7 @@ export function buildIndexMarkdown(input: {
     "## How to resume",
     "",
     "- Humans: run `sinscribe plan` (menu → Spec plan) to continue, regenerate a stage, or sync progress.",
-    `- Coding agents: start at [LOOP_PROMPT.md](${PLAN_FILES.loop}) — or \`sinscribe plan --loop-prompt\`.`,
+    `- Coding agents: start at [${PLAN_FILES.loop}](${PLAN_FILES.loop}) — or \`sinscribe plan --loop-prompt\`.`,
     "- After commits land: `sinscribe plan --sync` refreshes the status here and in handoff.md.",
     "",
     "## Loop contract",
@@ -1001,7 +1011,7 @@ export function buildIndexMarkdown(input: {
 }
 
 // ---------------------------------------------------------------------------
-// LOOP_PROMPT.md — the operating contract for the coding agent
+// loop-prompt.md — the operating contract for the coding agent
 // ---------------------------------------------------------------------------
 
 export function buildLoopPrompt(input: {

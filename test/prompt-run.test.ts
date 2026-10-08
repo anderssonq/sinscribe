@@ -1,4 +1,4 @@
-import { readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CommandSpec, GlobalFlags } from "../src/commands.js";
@@ -71,6 +71,7 @@ async function saveLoginContext(repo: string): Promise<void> {
 }
 
 async function writeHandoff(repoRoot: string, branch: string): Promise<void> {
+  await mkdir(path.dirname(getHandoffPath(repoRoot)), { recursive: true });
   await writeFile(
     getHandoffPath(repoRoot),
     buildHandoffMarkdown({
@@ -254,7 +255,7 @@ describe("createPromptRun", () => {
   });
 });
 
-describe("HANDOFF.md as context", () => {
+describe("the handoff as context", () => {
   it("threads an existing handoff into the user prompt", async () => {
     await writeHandoff(repo, "feature/login");
     runSingleShotMock.mockResolvedValue(modelReply(DOC));
@@ -266,7 +267,7 @@ describe("HANDOFF.md as context", () => {
     const [, userPrompt] = runSingleShotMock.mock.calls[0] as [string, string];
 
     expect(userPrompt).toContain(
-      "Session handoff from HANDOFF.md (state carried over from earlier sessions on this branch):",
+      "Session handoff from handoff.md (state carried over from earlier sessions on this branch):",
     );
     expect(userPrompt).toContain("- Backoff is still unbounded.");
   });
@@ -327,7 +328,7 @@ describe("runPrompt (non-interactive parity)", () => {
     expect(runSingleShotMock).toHaveBeenCalledTimes(1);
   });
 
-  it("leaves HANDOFF.md alone without --handoff", async () => {
+  it("leaves the handoff alone without --handoff", async () => {
     runSingleShotMock.mockResolvedValue(modelReply(DOC));
 
     await runPrompt(makeSpec(), FLAGS, repo);
@@ -348,7 +349,7 @@ describe("runPrompt (non-interactive parity)", () => {
     expect(runSingleShotMock).toHaveBeenCalledTimes(2);
     expect(result).toContain(DOC);
     // Not the literal temp path: getRepoRoot resolves /var to /private/var.
-    expect(result).toMatch(/^Saved .*HANDOFF\.md$/mu);
+    expect(result).toMatch(/^Saved .*\.sinscribe\/handoff\.md$/mu);
 
     const written = await loadHandoff(repo);
 
@@ -386,13 +387,13 @@ describe("dryRunPrompt", () => {
 
   it("reports whether a handoff would be read back in", async () => {
     expect(await dryRunPrompt(makeSpec(), repo)).toContain(
-      "Handoff:     (no HANDOFF.md yet — offered after approval)",
+      "Handoff:     (no handoff.md yet — offered after approval)",
     );
 
     await writeHandoff(repo, "feature/login");
 
     expect(await dryRunPrompt(makeSpec(), repo)).toContain(
-      "Handoff:     HANDOFF.md (",
+      "Handoff:     handoff.md (",
     );
     expect(await dryRunPrompt(makeSpec(), repo)).toContain(
       "branch feature/login) — update offered after approval",
@@ -408,7 +409,7 @@ describe("dryRunPrompt", () => {
 
   it("says the handoff would be written when --handoff is passed", async () => {
     expect(await dryRunPrompt(makeSpec({ handoff: true }), repo)).toContain(
-      "(no HANDOFF.md yet — one would be written)",
+      "(no handoff.md yet — one would be written)",
     );
 
     await writeHandoff(repo, "feature/login");

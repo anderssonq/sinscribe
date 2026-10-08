@@ -70,7 +70,7 @@ export type PromptContext = {
   /** name-status + stat tail vs the base; null when no base or no changes. */
   changedFiles: string | null;
   rulesSummary: RulesSummary;
-  /** HANDOFF.md at the repo root, carrying state from earlier sessions. */
+  /** .sinscribe/handoff.md, carrying state from earlier sessions. */
   handoff: ParsedHandoff | null;
 };
 
@@ -256,7 +256,7 @@ export type PromptRun = {
   approve(): Promise<{ outPath: string | null }>;
   /**
    * Hands the already-gathered git/session context to a handoff run, so
-   * writing HANDOFF.md never re-shells git. Null outside a repo — there is
+   * writing the handoff never re-shells git. Null outside a repo — there is
    * nowhere to write the file.
    */
   buildHandoffInput(agentPrompt: string): HandoffInput | null;

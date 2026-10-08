@@ -69,10 +69,10 @@ const TASKS = [
 describe("plan paths", () => {
   it("derives a sanitized directory per branch", () => {
     expect(getPlanDirRel("feat/reset password")).toBe(
-      "specs/feat-reset-password",
+      ".sinscribe/specs/feat-reset-password",
     );
     expect(getPlanDir("/repo", "feat/x")).toBe(
-      path.join("/repo", "specs", "feat-x"),
+      path.join("/repo", ".sinscribe", "specs", "feat-x"),
     );
   });
 });
@@ -90,7 +90,7 @@ describe("plan document framing", () => {
     expect(markdown).toContain("# Design — Password reset");
     expect(markdown).toContain("[Requirements](requirements.md)");
     expect(markdown).toContain("**Design**");
-    expect(markdown).toContain("[Loop prompt](LOOP_PROMPT.md)");
+    expect(markdown).toContain("[Loop prompt](loop-prompt.md)");
     expect(extractPlanDocBody(markdown)).toBe("## Overview\nHello");
   });
 

@@ -9,6 +9,7 @@ import {
   type SessionDraftRequest,
   type SessionDraftRun,
 } from "../domain/session-draft.js";
+import { HANDOFF_FILENAME } from "../domain/handoff-export.js";
 import type { SessionContext } from "../session/store.js";
 import { MultilinePrompt, ScrollView, SelectList } from "./menu-view.js";
 import { HeadPanel } from "./panel.js";
@@ -57,7 +58,7 @@ export function describeSessionEvidence(meta: SessionDraftMeta): string[] {
 
   return [
     `Branch ${meta.branch} → ${meta.baseRef ?? "(target not detected)"}${meta.ticket ? ` · ticket ${meta.ticket}` : ""}`,
-    `${plural(meta.commits, "commit")} · ${plural(meta.changedFiles, "changed file")} · ${plural(meta.docs, "markdown doc")}${meta.handoff ? " · HANDOFF.md" : ""}`,
+    `${plural(meta.commits, "commit")} · ${plural(meta.changedFiles, "changed file")} · ${plural(meta.docs, "markdown doc")}${meta.handoff ? ` · ${HANDOFF_FILENAME}` : ""}`,
     meta.exploreKind === "none"
       ? "This provider cannot open files: the AI gets git, the repo brief and matching docs instead."
       : "The AI can read the code and docs read-only — it never changes a file.",
