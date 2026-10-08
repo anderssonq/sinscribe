@@ -1,4 +1,4 @@
-import { readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CommandSpec, GlobalFlags } from "../src/commands.js";
@@ -159,7 +159,10 @@ async function generateAndApprove(
 }
 
 async function readPlanFile(name: string): Promise<string> {
-  return readFile(path.join(repo, "specs", "feat-reset", name), "utf8");
+  return readFile(
+    path.join(repo, ".sinscribe", "specs", "feat-reset", name),
+    "utf8",
+  );
 }
 
 beforeEach(async () => {
@@ -245,7 +248,7 @@ describe("plan pipeline", () => {
     await badRun.generate("cover AC-1.2");
     expect(mocks.runExplore.mock.calls[3][1]).toContain("cover AC-1.2");
     expect(await badRun.approve()).toContain(
-      "Wrote specs/feat-reset/LOOP_PROMPT.md",
+      "Wrote .sinscribe/specs/feat-reset/loop-prompt.md",
     );
 
     // handoff: single-shot, wrapped in code-owned zones.
@@ -270,7 +273,9 @@ describe("plan pipeline", () => {
     expect(
       parseIndex(await readPlanFile("index.md"))?.stages.design?.mode,
     ).toBe("claude-cli-readonly");
-    expect(await readLoopPrompt(ctx)).toContain("specs/feat-reset/tasks.md");
+    expect(await readLoopPrompt(ctx)).toContain(
+      ".sinscribe/specs/feat-reset/tasks.md",
+    );
   });
 
   it("hand edits upstream make downstream stale until accepted and regenerated", async () => {
@@ -297,7 +302,7 @@ describe("plan pipeline", () => {
 
     expect(await approveStage(ctx, null)).toEqual(
       expect.arrayContaining([
-        "Approved specs/feat-reset/requirements.md",
+        "Approved .sinscribe/specs/feat-reset/requirements.md",
         "Now stale: design.md — regenerate in order.",
       ]),
     );
@@ -473,7 +478,9 @@ describe("plan pipeline", () => {
     const ctx = await loadPlanContext(repo);
     const snap = await readPlan(ctx);
 
-    expect(output).toContain("Saved draft specs/feat-reset/requirements.md");
+    expect(output).toContain(
+      "Saved draft .sinscribe/specs/feat-reset/requirements.md",
+    );
     expect(output).toContain("sinscribe plan --approve --stage requirements");
     expect(snap.views.requirements.status).toBe("draft");
 
@@ -489,6 +496,23 @@ describe("plan pipeline", () => {
     const ctx = await loadPlanContext(repo);
 
     expect(ctx.feature).toBe("Password reset");
+  });
+
+  it("stops with a git mv hint when the plan is still in the legacy specs/ dir", async () => {
+    mocks.runExplore.mockResolvedValueOnce(explored(REQUIREMENTS));
+
+    const ctx = await loadPlanContext(repo);
+
+    await generateAndApprove(ctx, "requirements");
+    await mkdir(path.join(repo, "specs"), { recursive: true });
+    await rename(ctx.dir, path.join(repo, "specs", "feat-reset"));
+
+    await expect(loadPlanContext(repo)).rejects.toThrow(
+      "git mv specs/feat-reset .sinscribe/specs/feat-reset",
+    );
+    expect(await dryRunPlan(spec(), null, repo)).toContain(
+      "plans now live in .sinscribe/specs/feat-reset/",
+    );
   });
 
   it("refuses a plan directory written for another branch", async () => {
@@ -518,7 +542,7 @@ describe("plan pipeline", () => {
     const output = await dryRunPlan(spec({ explore: false }), null, repo);
 
     expect(output).toContain("dry run: no LLM call");
-    expect(output).toContain("specs/feat-reset/ (tracked by git");
+    expect(output).toContain(".sinscribe/specs/feat-reset/ (tracked by git");
     expect(output).toContain("generate requirements.md (single-shot");
     expect(mocks.runExplore).not.toHaveBeenCalled();
     await rm(path.join(repo, ".sinscribe"), { recursive: true, force: true });

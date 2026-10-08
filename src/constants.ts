@@ -430,3 +430,10 @@ export function isValidModelId(value: string): boolean {
     !modelId.includes("://")
   );
 }
+
+/** Per-repo home for everything Sinscribe writes: exports, specs, sessions, project templates/rules. */
+export const SINSCRIBE_DIRNAME = ".sinscribe";
+
+export function getSinscribeDir(repoRoot: string): string {
+  return join(repoRoot, SINSCRIBE_DIRNAME);
+}

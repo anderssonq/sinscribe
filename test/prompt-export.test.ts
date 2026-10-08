@@ -8,11 +8,11 @@ import {
 } from "../src/domain/prompt-export.js";
 
 describe("getPromptExportPath", () => {
-  it("joins the fixed filename onto the repo root", () => {
+  it("joins the lowercase filename onto the repo's .sinscribe dir", () => {
     expect(getPromptExportPath("/repo")).toBe(
-      path.join("/repo", "AGENT_PROMPT.md"),
+      path.join("/repo", ".sinscribe", "agent-prompt.md"),
     );
-    expect(PROMPT_EXPORT_FILENAME).toBe("AGENT_PROMPT.md");
+    expect(PROMPT_EXPORT_FILENAME).toBe("agent-prompt.md");
   });
 });
 

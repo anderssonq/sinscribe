@@ -30,7 +30,7 @@ export type CommandSpec =
       type: "feature" | "bugfix" | null;
       description: string | null;
       out: string | null;
-      /** Write HANDOFF.md without asking — the only route in print mode. */
+      /** Write .sinscribe/handoff.md without asking — the only route in print mode. */
       handoff: boolean;
     }
   | {
@@ -731,14 +731,15 @@ Usage
   sinscribe                                Interactive chat/agent mode
   sinscribe pr [options]                   Generate a PR/MR description from local changes vs the target branch
                                            (interactive runs review the draft: approve, refine with feedback,
-                                           then optionally export PR_DESCRIPTION.md and/or copy to the clipboard)
+                                           then optionally export .sinscribe/pr-description.md and/or copy to the clipboard)
   sinscribe prompt [options] [description] Generate a copy-ready feature/bugfix task prompt for an AI coding agent
                                            (interactive runs review the draft, then optionally export
-                                           AGENT_PROMPT.md and/or copy to the clipboard, and update HANDOFF.md;
+                                           .sinscribe/agent-prompt.md and/or copy to the clipboard, and update
+                                           .sinscribe/handoff.md;
                                            without a description, the saved session context is used)
   sinscribe plan [options]                 Spec plan (SDD): requirements → design → tasks → handoff in
-                                           specs/<branch>/, each reviewed and approved in turn, plus a
-                                           LOOP_PROMPT.md that drives a coding agent task by task
+                                           .sinscribe/specs/<branch>/, each reviewed and approved in turn, plus a
+                                           loop-prompt.md that drives a coding agent task by task
   sinscribe commit [options]               Generate a commit message from staged changes
   sinscribe branch <ticket|description>    Suggest branch names
   sinscribe context [options]              Extract a structured project-context brief
@@ -757,14 +758,14 @@ Command options
             --out <file>        Write the description to a file
   prompt    --type <type>       feature|bugfix (default: inferred from the description)
             --out <file>        Write the prompt to a file
-            --handoff           Also write HANDOFF.md, the branch's session handoff
+            --handoff           Also write .sinscribe/handoff.md, the branch's session handoff
                                 (interactive runs offer this after approval)
   plan      --stage <stage>     requirements|design|tasks|handoff (default: the next stage needing work)
             --feedback <text>   Revise the stage's current version with this feedback
             --no-explore        Do not let the model read the repository (single-shot)
             --approve           Approve the stage's saved draft (offline; no model call)
             --sync              Match [T-n] commits and checkboxes; refresh progress (offline)
-            --loop-prompt       Print LOOP_PROMPT.md, e.g. to pipe into a coding agent
+            --loop-prompt       Print loop-prompt.md, e.g. to pipe into a coding agent
                                 (-p/--print writes drafts only; approve them with --approve)
   commit    --all, -a           Use all tracked changes, not only staged
             --scope <scope>     Force the conventional-commit scope
@@ -773,7 +774,7 @@ Command options
   context   --out <file>        Write the brief to a file
             --format <md|json>  Output format (default: md)
   docs      --out <file>        Write the documentation to a file
-                                (interactive runs offer PROJECT_DOCUMENTATION.md / clipboard export)
+                                (interactive runs offer .sinscribe/project-documentation.md / clipboard export)
   agents    --target <t>        claude|agents|both (default: both)
             --update            Surgically refresh existing files
   agent-setup                   (no options)

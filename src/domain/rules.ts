@@ -1,5 +1,6 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { getSinscribeDir } from "../constants.js";
 import { isFileNotFoundError, sinscribeRulesPath } from "../env.js";
 
 /**
@@ -18,7 +19,7 @@ export type RulesSummary = {
 };
 
 export function getProjectRulesPath(repoRoot: string): string {
-  return path.join(repoRoot, ".sinscribe", "rules.md");
+  return path.join(getSinscribeDir(repoRoot), "rules.md");
 }
 
 /** Reads a rules file; missing or whitespace-only ⇒ null (never a stray heading). */

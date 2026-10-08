@@ -28,6 +28,7 @@ import {
   type CoverageReport,
   extractLog,
   extractPlanDocBody,
+  getLegacyPlanDirRel,
   getPlanDir,
   getPlanDirRel,
   hashDoc,
@@ -73,7 +74,7 @@ import { describeRulesForDryRun } from "./rules.js";
 
 /**
  * The spec plan (`sinscribe plan`): a gated requirements → design → tasks →
- * handoff pipeline written to specs/<branch>/, plus a deterministic loop
+ * handoff pipeline written to .sinscribe/specs/<branch>/, plus a deterministic loop
  * prompt for an external coding agent. This module is the I/O shell around
  * the pure core in plan-docs.ts; every decision about consistency (approval,
  * staleness, coverage, progress) is made there.
@@ -87,7 +88,7 @@ export type PlanContext = {
   branch: string;
   /** Absolute plan directory. */
   dir: string;
-  /** Repo-relative plan directory, e.g. `specs/feat-x`. */
+  /** Repo-relative plan directory, e.g. `.sinscribe/specs/feat-x`. */
   dirRel: string;
   feature: string;
   ticket: string | null;
@@ -118,7 +119,13 @@ export async function loadPlanContext(cwd: string): Promise<PlanContext> {
 
   const dir = getPlanDir(base.repoRoot, branch);
   const dirRel = getPlanDirRel(branch);
-  // specs/ is tracked but sessions are not: a teammate who cloned the repo
+  const legacyDirRel = await findLegacyPlanDir(base.repoRoot, branch, dir);
+
+  if (legacyDirRel !== null) {
+    throw new CliError(legacyPlanMessage(legacyDirRel, dirRel));
+  }
+
+  // The plan dir is tracked but sessions are not: a teammate who cloned the repo
   // continues the plan from index.md's recorded feature.
   const feature =
     base.session?.context?.feature ??
@@ -141,6 +148,36 @@ export async function loadPlanContext(cwd: string): Promise<PlanContext> {
     ignored: await isPathIgnored(base.repoRoot, `${dirRel}/index.md`),
     base,
   };
+}
+
+/**
+ * The pre-.sinscribe/ plan dir (specs/<branch>/) when it holds a plan and the
+ * current dir does not. Plans are never moved silently: the files are tracked,
+ * so the move belongs in the author's own commit.
+ */
+async function findLegacyPlanDir(
+  repoRoot: string,
+  branch: string,
+  dir: string,
+): Promise<string | null> {
+  if ((await readOptional(path.join(dir, PLAN_FILES.index))) !== null) {
+    return null;
+  }
+
+  const legacyDirRel = getLegacyPlanDirRel(branch);
+  const legacyIndex = await readOptional(
+    path.join(repoRoot, ...legacyDirRel.split("/"), PLAN_FILES.index),
+  );
+
+  return legacyIndex === null ? null : legacyDirRel;
+}
+
+function legacyPlanMessage(legacyDirRel: string, dirRel: string): string {
+  return (
+    `This branch's plan is in ${legacyDirRel}/, but plans now live in ${dirRel}/. ` +
+    `Move it with: mkdir -p ${path.posix.dirname(dirRel)} && git mv ${legacyDirRel} ${dirRel}` +
+    ` (then rename LOOP_PROMPT.md to loop-prompt.md)`
+  );
 }
 
 async function readIndexFeature(
@@ -299,7 +336,7 @@ export type StageRun = {
     feedback: string | null,
     callbacks?: RunCallbacks,
   ): Promise<StageDraft>;
-  /** Writes the doc as approved, updates index.md (and LOOP_PROMPT.md). */
+  /** Writes the doc as approved, updates index.md (and loop-prompt.md). */
   approve(): Promise<string[]>;
   /** Writes the doc as a draft (print path, "save as draft"). */
   saveDraft(): Promise<string[]>;
@@ -980,7 +1017,7 @@ export async function syncPlan(ctx: PlanContext): Promise<string[]> {
 
   if (snap.progress.done === snap.progress.total && snap.progress.total > 0) {
     lines.push(
-      "All tasks are checked — have the agent run the final AC verification (see LOOP_PROMPT.md §3).",
+      "All tasks are checked — have the agent run the final AC verification (see loop-prompt.md §3).",
     );
   } else if (snap.progress.next) {
     lines.push(
@@ -1088,6 +1125,12 @@ export async function dryRunPlan(
     ignored: await isPathIgnored(base.repoRoot, `${dirRel}/index.md`),
     base,
   };
+  const legacyDirRel = await findLegacyPlanDir(base.repoRoot, branch, ctx.dir);
+
+  if (legacyDirRel !== null) {
+    return [header, "", legacyPlanMessage(legacyDirRel, dirRel)].join("\n");
+  }
+
   const snap = await readPlan(ctx);
   const stage = spec.stage ?? snap.next;
   // Flags/env only: a dry run never loads ~/.sinscribe/.env.

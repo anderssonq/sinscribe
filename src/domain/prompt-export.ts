@@ -1,10 +1,14 @@
 import path from "node:path";
-import { CLI_DISPLAY_NAME, SINSCRIBE_VERSION } from "../constants.js";
+import {
+  CLI_DISPLAY_NAME,
+  getSinscribeDir,
+  SINSCRIBE_VERSION,
+} from "../constants.js";
 
-export const PROMPT_EXPORT_FILENAME = "AGENT_PROMPT.md";
+export const PROMPT_EXPORT_FILENAME = "agent-prompt.md";
 
 export function getPromptExportPath(repoRoot: string): string {
-  return path.join(repoRoot, PROMPT_EXPORT_FILENAME);
+  return path.join(getSinscribeDir(repoRoot), PROMPT_EXPORT_FILENAME);
 }
 
 export type PromptExportInput = {
