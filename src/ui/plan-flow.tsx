@@ -50,6 +50,8 @@ type Step =
       revise: "fresh" | "existing";
       /** Review the saved draft first instead of generating. */
       useExisting: boolean;
+      /** Feedback for the first generation (`--feedback`). */
+      feedback: string | null;
       nonce: number;
     }
   | { step: "final" }
@@ -69,6 +71,8 @@ type PlanFlowProps = {
   explore: boolean;
   /** Jump straight to this stage (--stage), skipping the plan menu. */
   startStage: PlanStageId | null;
+  /** `--feedback`: revise startStage's current version with it. */
+  feedback?: string | null;
   onDone: (outcome: PlanFlowOutcome) => void;
 };
 
@@ -83,6 +87,7 @@ export function PlanFlow({
   isActive,
   explore,
   startStage,
+  feedback = null,
   onDone,
 }: PlanFlowProps) {
   const [step, setStep] = useState<Step>({ step: "loading" });
@@ -131,6 +136,7 @@ export function PlanFlow({
       explore: boolean;
       revise: "fresh" | "existing";
       useExisting: boolean;
+      feedback?: string | null;
     },
   ): void {
     try {
@@ -154,6 +160,7 @@ export function PlanFlow({
           options.useExisting &&
           run.existing !== null &&
           snapRef.current?.views[stage].status === "draft",
+        feedback: options.feedback ?? null,
         nonce: nonceRef.current,
       });
     } catch (error) {
@@ -216,7 +223,14 @@ export function PlanFlow({
           (stage) => snap.views[stage].status !== "missing",
         );
 
-        if (startStage !== null) {
+        if (startStage !== null && feedback !== null) {
+          openStage(startStage, {
+            explore,
+            revise: "existing",
+            useExisting: false,
+            feedback,
+          });
+        } else if (startStage !== null) {
           openStage(startStage, {
             explore,
             revise: "fresh",
@@ -264,18 +278,22 @@ export function PlanFlow({
         generate={(feedback, callbacks) => run.generate(feedback, callbacks)}
         generatingLabel={generatingLabel(stage, step.explore)}
         initialDraft={step.useExisting ? run.existing : null}
+        initialFeedback={step.feedback}
         isActive={isActive}
         key={`${stage}-${step.nonce}`}
         onDone={(outcome) => {
-          void afterStage(outcome);
+          afterStage(outcome).catch((error: unknown) => {
+            setStep({ step: "menu", notice: getErrorMessage(error) });
+          });
         }}
         onRetryWithoutExplore={
           step.explore && (stage === "requirements" || stage === "design")
-            ? () => {
+            ? (feedback: string | null) => {
                 openStage(stage, {
                   explore: false,
-                  revise: step.revise,
+                  revise: feedback !== null ? "existing" : step.revise,
                   useExisting: false,
+                  feedback,
                 });
               }
             : undefined
@@ -414,14 +432,18 @@ export function PlanFlow({
           }
 
           void (async () => {
-            await resetPlan(ctx);
-            note([`Reset ${ctx.dirRel}`]);
-            await refresh();
-            openStage("requirements", {
-              explore,
-              revise: "fresh",
-              useExisting: false,
-            });
+            try {
+              await resetPlan(ctx);
+              note([`Reset ${ctx.dirRel}`]);
+              await refresh();
+              openStage("requirements", {
+                explore,
+                revise: "fresh",
+                useExisting: false,
+              });
+            } catch (error) {
+              setStep({ step: "menu", notice: getErrorMessage(error) });
+            }
           })();
         }}
         title={
@@ -478,10 +500,12 @@ export function PlanFlow({
   const edited = PLAN_STAGES.filter(
     (stage) => snap.views[stage].editedSinceApproval,
   );
+  // An edited approved stage is "next", but continuing would regenerate it
+  // without the edits and overwrite them; "Accept hand edits" handles it.
   const items = [
     ...(snap.unmanaged
       ? []
-      : snap.next !== null
+      : snap.next !== null && !snap.views[snap.next].editedSinceApproval
         ? [
             {
               id: "continue",
@@ -588,8 +612,14 @@ export function PlanFlow({
               async () => {
                 const lines: string[] = [];
 
+                // In plan order, so each re-approval sees its upstream
+                // already accepted; one failure doesn't hide the others.
                 for (const stage of edited) {
-                  lines.push(...(await approveStage(ctx, stage)));
+                  try {
+                    lines.push(...(await approveStage(ctx, stage)));
+                  } catch (error) {
+                    lines.push(`✗ ${getErrorMessage(error)}`);
+                  }
                 }
 
                 return lines;

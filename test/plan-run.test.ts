@@ -307,6 +307,86 @@ describe("plan pipeline", () => {
     await expect(approveStage(ctx, "design")).rejects.toThrow(/stale/u);
   });
 
+  it("accepts consistent hand edits to an upstream and its downstream", async () => {
+    const ctx = await loadPlanContext(repo);
+
+    mocks.runExplore
+      .mockResolvedValueOnce(explored(REQUIREMENTS))
+      .mockResolvedValueOnce(explored(DESIGN));
+    await generateAndApprove(ctx, "requirements");
+    await generateAndApprove(ctx, "design");
+
+    for (const name of ["requirements.md", "design.md"]) {
+      const file = path.join(ctx.dir, name);
+      const raw = await readFile(file, "utf8");
+
+      // Inside the body markers, where an edit changes the approved hash.
+      await writeFile(
+        file,
+        raw.replace(
+          "<!-- sinscribe:body:end -->",
+          "Edited.\n<!-- sinscribe:body:end -->",
+        ),
+      );
+    }
+
+    expect((await readPlan(ctx)).views.design.status).toBe("stale");
+
+    await approveStage(ctx, "requirements");
+    await approveStage(ctx, "design");
+
+    const snap = await readPlan(ctx);
+
+    expect(snap.views.design.status).toBe("approved");
+    expect(snap.views.design.editedSinceApproval).toBe(false);
+  });
+
+  it("print mode will not regenerate a hand-edited approved stage", async () => {
+    const ctx = await loadPlanContext(repo);
+
+    mocks.runExplore.mockResolvedValueOnce(explored(REQUIREMENTS));
+    await generateAndApprove(ctx, "requirements");
+
+    const file = path.join(ctx.dir, "requirements.md");
+    const edited = (await readFile(file, "utf8")).replace(
+      "identically",
+      "the same way",
+    );
+
+    await writeFile(file, edited);
+
+    const output = await runPlan(spec(), FLAGS, repo);
+
+    expect(output).toContain("was edited after approval");
+    expect(await readFile(file, "utf8")).toBe(edited);
+    expect(mocks.runExplore).toHaveBeenCalledTimes(1);
+  });
+
+  it("feedback on a saved draft revises that draft", async () => {
+    mocks.runExplore.mockResolvedValueOnce(explored(REQUIREMENTS));
+    await runPlan(spec(), FLAGS, repo);
+
+    const ctx = await loadPlanContext(repo);
+    const run = createStageRun(
+      ctx,
+      await readPlan(ctx),
+      "requirements",
+      FLAGS,
+      {
+        explore: true,
+        revise: "fresh",
+      },
+    );
+
+    mocks.runExplore.mockResolvedValueOnce(explored(REQUIREMENTS));
+    await run.generate("split REQ-2 in two");
+
+    const prompt = mocks.runExplore.mock.calls[1][1];
+
+    expect(prompt).toContain("Previous version of requirements.md");
+    expect(prompt).toContain("split REQ-2 in two");
+  });
+
   it("syncs progress from [T-n] commits without touching the log", async () => {
     const ctx = await loadPlanContext(repo);
 

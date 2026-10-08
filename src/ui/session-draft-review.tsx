@@ -12,7 +12,7 @@ import {
 import type { SessionContext } from "../session/store.js";
 import { MultilinePrompt, ScrollView, SelectList } from "./menu-view.js";
 import { HeadPanel } from "./panel.js";
-import { useReviewPreviewRows } from "./review-shared.js";
+import { useReviewLogRows, useReviewPreviewRows } from "./review-shared.js";
 import { appendEvent, RunLog, type LogItem } from "./run-view.js";
 import { getErrorMessage, isDebugMode } from "./shared.js";
 import { Spinner } from "./spinner.js";
@@ -142,6 +142,9 @@ export function SessionDraftFlow({
   onDone,
 }: SessionDraftFlowProps) {
   const previewRows = useReviewPreviewRows(REVIEW_EXTRA_ROWS);
+  // The exploration log grows one line per file read: window it, or a long
+  // run makes the frame terminal-tall and Ink's full redraws freeze the CLI.
+  const logRows = useReviewLogRows(4);
   const [phase, setPhase] = useState<Phase>({ phase: "loading" });
   const [log, setLog] = useState<LogItem[]>([]);
   const runRef = useRef<SessionDraftRun | null>(null);
@@ -335,7 +338,7 @@ export function SessionDraftFlow({
   if (phase.phase === "generating") {
     return (
       <Box flexDirection="column">
-        {log.length > 0 ? <RunLog log={log} /> : null}
+        {log.length > 0 ? <RunLog log={log} maxRows={logRows} /> : null}
         <Spinner label={phase.label} />
       </Box>
     );
@@ -516,8 +519,17 @@ export function SessionDraftFlow({
 
   return (
     <Box flexDirection="column">
-      {log.length > 0 ? <RunLog log={log} /> : null}
-      <Text color={theme.error}>Error: {phase.message}</Text>
+      {log.length > 0 ? (
+        <RunLog log={log} maxRows={Math.max(1, logRows - 8)} />
+      ) : null}
+      <Text color={theme.error} wrap="truncate-end">
+        Error: {phase.message.split("\n")[0]}
+      </Text>
+      {phase.message.includes("\n") ? (
+        <Text color={theme.dim} wrap="truncate-end">
+          {phase.message.split("\n").slice(1, 3).join(" · ")}
+        </Text>
+      ) : null}
       <SelectList
         isActive={isActive}
         key="error"

@@ -3,9 +3,12 @@ import path from "node:path";
 import { MemorySaver } from "@langchain/langgraph";
 import {
   createDeepAgent,
+  type EditResult,
   FilesystemBackend,
   type FilesystemPermission,
+  type FileUploadResponse,
   LocalShellBackend,
+  type WriteResult,
 } from "deepagents";
 import {
   getProviderAuthKind,
@@ -196,6 +199,38 @@ export function buildReadOnlyPermissions(): FilesystemPermission[] {
   ];
 }
 
+const READ_ONLY_REFUSAL = "the repository is read-only for this run";
+
+/**
+ * A FilesystemBackend that refuses every write at the backend itself. The
+ * permission rules only gate the model's tools; deepagents' own middleware
+ * (conversation summarization, large-result and large-prompt eviction) calls
+ * backend.write()/edit()/uploadFiles() directly, which would otherwise drop
+ * /conversation_history/* and /large_tool_results/* files — full transcripts
+ * and file contents — into the user's repository. Those callers treat an
+ * error result as "could not offload" and carry on.
+ */
+export class ReadOnlyFilesystemBackend extends FilesystemBackend {
+  override write(): Promise<WriteResult> {
+    return Promise.resolve({ error: READ_ONLY_REFUSAL });
+  }
+
+  override edit(): Promise<EditResult> {
+    return Promise.resolve({ error: READ_ONLY_REFUSAL });
+  }
+
+  override uploadFiles(
+    files: Array<[string, Uint8Array]>,
+  ): Promise<FileUploadResponse[]> {
+    return Promise.resolve(
+      files.map(([filePath]) => ({
+        path: filePath,
+        error: "permission_denied" as const,
+      })),
+    );
+  }
+}
+
 export type ReadOnlyAgentResult = AgentRunResult & { filesRead: string[] };
 
 /**
@@ -233,7 +268,7 @@ export async function runReadOnlyAgent(
     model,
     tools: [],
     checkpointer: new MemorySaver(),
-    backend: new FilesystemBackend({
+    backend: new ReadOnlyFilesystemBackend({
       rootDir: repoRoot,
       virtualMode: true,
       maxFileSizeMb: 1,
@@ -246,6 +281,9 @@ export async function runReadOnlyAgent(
     totalMs: EXPLORE_TOTAL_MS,
   });
   const filesRead = new Set<string>();
+  // A read counts once its result arrives without an error: a call the
+  // permission rules deny (e.g. .env) was attempted, never read.
+  const pendingReads = new Map<string, string>();
   // Only the root agent's text after its LAST tool call is the answer;
   // earlier text is narration ("Let me look at…").
   let parts: string[] = [];
@@ -284,7 +322,17 @@ export async function runReadOnlyAgent(
         const file = /file_path="([^"]+)"/u.exec(event.call)?.[1];
 
         if (event.name === "read_file" && file) {
-          filesRead.add(file.replace(/^\//u, ""));
+          pendingReads.set(event.id, file.replace(/^\//u, ""));
+        }
+      }
+
+      if (event.type === "tool_end") {
+        const file = pendingReads.get(event.id);
+
+        pendingReads.delete(event.id);
+
+        if (file && event.status === "finished") {
+          filesRead.add(file);
         }
       }
 
@@ -448,18 +496,31 @@ function parseToolEvent(payload: unknown): RunEvent | null {
     event === "on_tool_error" ||
     event === "tool-error"
   ) {
+    const failed =
+      event === "on_tool_error" ||
+      event === "tool-error" ||
+      isErrorOutput(payload.output);
+
     return {
       type: "tool_end",
       id,
       name,
-      status:
-        event === "on_tool_error" || event === "tool-error"
-          ? "error"
-          : "finished",
+      status: failed ? "error" : "finished",
     };
   }
 
   return null;
+}
+
+/**
+ * deepagents' filesystem tools report most failures (file not found, a
+ * backend refusal) as a normal result whose text starts with "Error:".
+ */
+function isErrorOutput(output: unknown): boolean {
+  const content =
+    isRecord(output) && "content" in output ? output.content : output;
+
+  return getContentText(content).trimStart().startsWith("Error:");
 }
 
 function formatToolArgs(input: unknown): string {

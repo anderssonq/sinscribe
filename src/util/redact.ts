@@ -19,10 +19,37 @@ const SECRET_PATTERNS: RegExp[] = [
 
 /**
  * `api_key = "…"`-style assignments. The value must be 20+ token characters,
- * so type annotations (`token: string`) and short placeholders survive.
+ * so type annotations (`token: string`) and short placeholders survive, and
+ * it must look like a credential (see looksLikeSecretValue), so code that a
+ * spec names on purpose — `token: RefreshTokenResponse`,
+ * `secretKey = process.env.SESSION_SECRET_KEY` — survives too.
  */
 const ASSIGNMENT_PATTERN =
-  /\b((?:api[_-]?key|secret|token|password|passwd)\w*["']?\s*[:=]\s*["']?)([A-Za-z0-9_\-/+=.]{20,})/giu;
+  /\b((?:api[_-]?key|secret|token|password|passwd)\w*["']?\s*[:=]\s*["']?)([A-Za-z0-9_\-/+=.]{20,})(\(?)/giu;
+
+/** A dotted member path: `process.env.SESSION_SECRET_KEY`, `config.auth.token`. */
+const MEMBER_PATH = /^[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)+$/u;
+/** A file path with an extension: `config/production/tokens.yml`. */
+const FILE_PATH = /^[\w.-]+(?:\/[\w.-]+)*\.[A-Za-z]{1,5}$/u;
+
+/**
+ * Generated keys, hashes and base64 blobs mix letters with digits; the
+ * identifiers, member paths and file paths a spec refers to rarely do.
+ */
+function looksLikeSecretValue(value: string, isCall: boolean): boolean {
+  if (isCall || MEMBER_PATH.test(value)) {
+    return false;
+  }
+
+  if (FILE_PATH.test(value) && value.includes("/")) {
+    return false;
+  }
+
+  const digits = value.replace(/[^0-9]/gu, "").length;
+  const letters = value.replace(/[^A-Za-z]/gu, "").length;
+
+  return digits >= 2 && letters >= 2;
+}
 
 export type RedactionResult = { text: string; count: number };
 
@@ -54,14 +81,17 @@ export function redactSecrets(
 
   result = result.replace(
     ASSIGNMENT_PATTERN,
-    (match: string, prefix: string, value: string) => {
-      if (value === REDACTED || value.includes(REDACTED)) {
+    (match: string, prefix: string, value: string, call: string) => {
+      if (
+        value.includes(REDACTED) ||
+        !looksLikeSecretValue(value, call.length > 0)
+      ) {
         return match;
       }
 
       count += 1;
 
-      return `${prefix}${REDACTED}`;
+      return `${prefix}${REDACTED}${call}`;
     },
   );
 

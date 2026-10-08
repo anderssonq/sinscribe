@@ -1,4 +1,3 @@
-import { readFile } from "node:fs/promises";
 import path from "node:path";
 import type { GlobalFlags } from "../commands.js";
 import {
@@ -6,7 +5,6 @@ import {
   resolveConfiguredProvider,
   type ExploreKind,
 } from "../constants.js";
-import { tryGit } from "../git/run.js";
 import { extractTicketId } from "../git/ticket.js";
 import { InvalidModelJsonError } from "../llm/errors.js";
 import type { RunCallbacks } from "../llm/events.js";
@@ -24,7 +22,12 @@ import {
   createSessionDraftSystemPrompt,
   JSON_ONLY_INSTRUCTION,
 } from "./prompts.js";
-import { buildRepoBrief, isSecretPath } from "./repo-brief.js";
+import {
+  buildRepoBrief,
+  isSecretPath,
+  listTrackedFiles,
+  readCapped,
+} from "./repo-brief.js";
 
 /**
  * AI-assisted session context: the author gives the direction, the model
@@ -263,7 +266,9 @@ export function toSessionContext(
   options: { keepOpenQuestions: boolean },
 ): SessionContext {
   const sections = [
-    draft.requirements,
+    draft.requirements === null
+      ? null
+      : stripAppendedSections(draft.requirements),
     draft.sources.length > 0
       ? [
           "References:",
@@ -290,6 +295,25 @@ export function toSessionContext(
     requirements: sections.length > 0 ? sections.join("\n\n") : null,
     baseRef: draft.baseRef,
   };
+}
+
+/**
+ * Drops "References:" / "Open questions:" blocks that toSessionContext
+ * appended to an earlier version. A regeneration sees those requirements as
+ * the previous context and may echo them back; without this, every approval
+ * would stack another copy.
+ */
+export function stripAppendedSections(requirements: string): string {
+  return requirements
+    .split(/\n{2,}/u)
+    .filter(
+      (block) =>
+        !/^(?:References|Open questions):\n(?:- .*(?:\n|$))+$/u.test(
+          block.trim() + "\n",
+        ),
+    )
+    .join("\n\n")
+    .trim();
 }
 
 function buildSessionDraftUserPrompt(input: {
@@ -606,7 +630,10 @@ async function buildReadExcerpts(
       continue;
     }
 
-    const content = await readHead(path.join(repoRoot, file));
+    const content = await readCapped(
+      path.join(repoRoot, file),
+      MAX_EXCERPT_BYTES,
+    );
 
     if (content !== null) {
       excerpts.push(`--- ${file} ---\n${content}`);
@@ -616,17 +643,74 @@ async function buildReadExcerpts(
   return redactSecrets(excerpts.join("\n\n")).text;
 }
 
-async function listTrackedFiles(repoRoot: string): Promise<string[]> {
-  const listing = await tryGit(repoRoot, ["ls-files"]);
-
-  return (listing ?? "")
-    .split("\n")
-    .filter((file) => file.length > 0 && !isSecretPath(file));
-}
-
 function isMarkdownPath(file: string): boolean {
   return /\.(md|mdx|markdown)$/iu.test(file);
 }
+
+/**
+ * Words too common to tie a doc to the direction ("add that with the…",
+ * "agregar para esta…"): matching them would excerpt nearly every doc.
+ */
+const DIGEST_STOPWORDS = new Set([
+  "about",
+  "also",
+  "been",
+  "from",
+  "have",
+  "into",
+  "just",
+  "like",
+  "make",
+  "more",
+  "need",
+  "only",
+  "should",
+  "some",
+  "than",
+  "that",
+  "their",
+  "them",
+  "then",
+  "there",
+  "these",
+  "they",
+  "this",
+  "when",
+  "where",
+  "which",
+  "will",
+  "with",
+  "would",
+  "your",
+  "add",
+  "change",
+  "fix",
+  "update",
+  "para",
+  "como",
+  "esta",
+  "este",
+  "esto",
+  "pero",
+  "porque",
+  "sobre",
+  "todo",
+  "todos",
+  "cuando",
+  "donde",
+  "entre",
+  "hacer",
+  "desde",
+  "hasta",
+  "tiene",
+  "tener",
+  "debe",
+  "puede",
+  "agregar",
+  "añadir",
+  "cambiar",
+  "arreglar",
+]);
 
 /**
  * What a model that cannot open files gets instead: the tracked markdown
@@ -648,7 +732,7 @@ export async function buildDocsDigest(
         .join(" ")
         .toLowerCase()
         .split(/[^\p{L}\p{N}-]+/u)
-        .filter((word) => word.length >= 4),
+        .filter((word) => word.length >= 4 && !DIGEST_STOPWORDS.has(word)),
     ),
   ];
   const excerpts: string[] = [];
@@ -658,7 +742,10 @@ export async function buildDocsDigest(
       break;
     }
 
-    const content = await readHead(path.join(repoRoot, doc));
+    const content = await readCapped(
+      path.join(repoRoot, doc),
+      MAX_EXCERPT_BYTES,
+    );
 
     if (content === null) {
       continue;
@@ -678,22 +765,6 @@ export async function buildDocsDigest(
         : "No markdown document mentions the direction's keywords.",
     ].join("\n\n"),
   ).text;
-}
-
-async function readHead(filePath: string): Promise<string | null> {
-  try {
-    const content = (await readFile(filePath, "utf8")).trim();
-
-    if (content.length === 0) {
-      return null;
-    }
-
-    return content.length > MAX_EXCERPT_BYTES
-      ? `${content.slice(0, MAX_EXCERPT_BYTES)}\n… (truncated)`
-      : content;
-  } catch {
-    return null;
-  }
 }
 
 function countLines(text: string): number {

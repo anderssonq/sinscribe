@@ -230,7 +230,8 @@ describe("computeProgress", () => {
     const progress = computeProgress(parseRequirements(REQUIREMENTS), tasks, [
       { sha: "bbb", subject: "feat: send email [T-2]" },
       { sha: "aaa", subject: "feat: token table [T-1]" },
-      { sha: "ccc", subject: "chore: T-8 typo" },
+      { sha: "ccc", subject: "chore: typo [T-8]" },
+      { sha: "ddd", subject: "docs: explain T-1 in the README" },
     ]);
 
     expect(progress.done).toBe(1);
@@ -356,6 +357,19 @@ describe("index state and staleness", () => {
       null,
     );
     expect(parseIndex("no state")).toBeNull();
+  });
+
+  it("keeps a feature containing --> inside the state comment", () => {
+    const tricky = { ...index, feature: 'Ship "a }--> b" safely' };
+    const markdown = buildIndexMarkdown({
+      index: tricky,
+      views: computeStageViews(tricky, bodies),
+      progress: null,
+      coverage: null,
+      dirRel: "specs/feat-x",
+    });
+
+    expect(parseIndex(markdown)).toEqual(tricky);
   });
 
   it("marks approved chains approved and finds the next stage", () => {

@@ -45,9 +45,14 @@ const ANSI = /\x1b\[[0-9;?]*[A-Za-z]/gu;
  */
 const READ_OK = /^\s*✓ Successfully read \d+ bytes from (.+)$/u;
 
-/** Tool traffic: the call, its result, its timing, or a rejection. */
-const TOOL_LINE =
-  /\(using tool: |^\s*[✓✗] |^\s*- Completed in |^\s*- Summary: |^\s*↱ |^\s*⋮|^Purpose: |is rejected because|^Reading (?:file|directory)|^Searching /u;
+/**
+ * Every tool call — single, batched or rejected — opens with this marker; its
+ * result lines (✓, ↱, Purpose:, - Summary:, …) follow until the next "> "
+ * message. Only the marker anchors the answer search: the result lines'
+ * shapes are ordinary markdown ("- Summary: …", "✓ done") that a document
+ * may contain too.
+ */
+const TOOL_CALL = /\(using tool: /u;
 
 /** Kiro's footer after the answer: " ▸ Credits: 0.01 • Time: 2s". */
 const FOOTER = /^\s*▸\s*Credits:/u;
@@ -104,26 +109,18 @@ export function parseKiroExploreOutput(
   raw: string,
   repoRoot: string,
 ): KiroExploreResult {
-  const lines = raw.replace(ANSI, "").replace(/\r/gu, "").split("\n");
-  const root = repoRoot.replace(/\/+$/u, "");
+  const lines = cleanTranscript(raw).split("\n");
   const filesRead: string[] = [];
   let lastToolLine = -1;
 
   lines.forEach((line, index) => {
-    const reading = READ_OK.exec(line);
+    const relative = readFromLine(line, repoRoot);
 
-    if (reading?.[1]) {
-      const file = reading[1].trim();
-      const relative = file.startsWith(`${root}/`)
-        ? file.slice(root.length + 1)
-        : null;
-
-      if (relative !== null && !filesRead.includes(relative)) {
-        filesRead.push(relative);
-      }
+    if (relative !== null && !filesRead.includes(relative)) {
+      filesRead.push(relative);
     }
 
-    if (TOOL_LINE.test(line)) {
+    if (TOOL_CALL.test(line)) {
       lastToolLine = index;
     }
   });
@@ -147,6 +144,18 @@ export function parseKiroExploreOutput(
   }
 
   return { text: answer.join("\n").trim(), filesRead };
+}
+
+function cleanTranscript(raw: string): string {
+  return raw.replace(ANSI, "").replace(/\r/gu, "");
+}
+
+/** The repo-relative file a "✓ Successfully read" line confirms, if any. */
+function readFromLine(line: string, repoRoot: string): string | null {
+  const file = READ_OK.exec(line)?.[1]?.trim();
+  const root = repoRoot.replace(/\/+$/u, "");
+
+  return file?.startsWith(`${root}/`) ? file.slice(root.length + 1) : null;
 }
 
 export async function runKiroExplore(
@@ -219,6 +228,9 @@ export async function runKiroExplore(
     child.stdout.setEncoding("utf8");
 
     const reported = new Set<string>();
+    // Only complete new lines are scanned for reads: re-parsing the whole
+    // transcript per chunk is quadratic on a long exploration.
+    let partial = "";
 
     try {
       for await (const chunk of raceAbort(
@@ -227,10 +239,16 @@ export async function runKiroExplore(
       )) {
         watchdog.touch();
         stdout += chunk;
+        partial += chunk;
 
-        for (const file of parseKiroExploreOutput(stdout, input.repoRoot)
-          .filesRead) {
-          if (!reported.has(file)) {
+        const complete = partial.split("\n");
+
+        partial = complete.pop() ?? "";
+
+        for (const line of complete) {
+          const file = readFromLine(cleanTranscript(line), input.repoRoot);
+
+          if (file !== null && !reported.has(file)) {
             reported.add(file);
             input.onEvent?.({ type: "status", message: `Read ${file}` });
           }

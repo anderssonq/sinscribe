@@ -8,6 +8,7 @@ import {
 import { isFileNotFoundError } from "../env.js";
 import {
   getCurrentBranch,
+  type CommitSubject,
   getRangeSubjects,
   isPathIgnored,
 } from "../git/repo.js";
@@ -184,7 +185,17 @@ async function readOptional(filePath: string): Promise<string | null> {
   }
 }
 
-export async function readPlan(ctx: PlanContext): Promise<PlanSnapshot> {
+/** The git log each snapshot was computed from, so a re-read can skip it. */
+const snapshotCommits = new WeakMap<PlanSnapshot, CommitSubject[]>();
+
+/**
+ * `commits` reuses an earlier read's git log — only valid when no commit can
+ * have landed since and the plan's createdAt (the log's bound) is unchanged.
+ */
+export async function readPlan(
+  ctx: PlanContext,
+  commits?: CommitSubject[],
+): Promise<PlanSnapshot> {
   const rawIndex = await readOptional(path.join(ctx.dir, PLAN_FILES.index));
   const index = rawIndex === null ? null : parseIndex(rawIndex);
   const bodies: Partial<Record<PlanStageId, string>> = {};
@@ -201,9 +212,18 @@ export async function readPlan(ctx: PlanContext): Promise<PlanSnapshot> {
   const requirements = parseRequirements(bodies.requirements ?? "");
   const tasks = parseTasks(bodies.tasks ?? "");
   const hasTasks = bodies.tasks !== undefined;
-  const commits = hasTasks ? await getRangeSubjects(ctx.cwd, ctx.baseRef) : [];
-
-  return {
+  // Without a base to range from, the plan's creation bounds the history so
+  // an earlier plan's [T-n] commits are not attributed to this one.
+  const log = !hasTasks
+    ? []
+    : (commits ??
+      (await getRangeSubjects(
+        ctx.cwd,
+        ctx.baseRef,
+        200,
+        ctx.baseRef === null ? (index?.createdAt ?? null) : null,
+      )));
+  const snap: PlanSnapshot = {
     index,
     bodies,
     views,
@@ -216,10 +236,14 @@ export async function readPlan(ctx: PlanContext): Promise<PlanSnapshot> {
     requirements,
     tasks,
     coverage: hasTasks ? computeCoverage(requirements, tasks) : null,
-    progress: hasTasks ? computeProgress(requirements, tasks, commits) : null,
+    progress: hasTasks ? computeProgress(requirements, tasks, log) : null,
     loopPromptExists:
       (await readOptional(path.join(ctx.dir, PLAN_FILES.loop))) !== null,
   };
+
+  snapshotCommits.set(snap, log);
+
+  return snap;
 }
 
 function assertUsable(snap: PlanSnapshot): void {
@@ -318,18 +342,17 @@ export function createStageRun(
     feedback: string | null,
     callbacks: RunCallbacks = {},
   ): Promise<StageDraft> => {
+    // Feedback is always about the draft the developer just reviewed — the
+    // on-disk one when a "fresh" run has not generated yet — so revise it
+    // rather than starting over without it.
+    const base =
+      feedback !== null ? (previous ?? last?.content ?? null) : previous;
     const systemPrompt = buildStageSystemPrompt(stage, {
-      update: previous !== null,
+      update: base !== null,
       feedback: feedback !== null,
       rules: ctx.base.rulesSummary.combined,
     });
-    const userPrompt = buildStageUserPrompt(
-      ctx,
-      snap,
-      stage,
-      previous,
-      feedback,
-    );
+    const userPrompt = buildStageUserPrompt(ctx, snap, stage, base, feedback);
     const llm = {
       modelId: flags.modelId,
       provider: flags.provider,
@@ -773,7 +796,7 @@ async function finishWrite(
     lines.push(`Wrote ${ctx.dirRel}/${PLAN_FILES.loop}`);
   }
 
-  const after = await writeIndex(ctx, index);
+  const after = await writeIndex(ctx, index, snap);
   const downstream = PLAN_STAGES.filter(
     (other) => after.views[other].status === "stale",
   );
@@ -799,9 +822,11 @@ async function finishWrite(
 async function writeIndex(
   ctx: PlanContext,
   index: PlanIndex,
+  /** A snapshot read after the stage files were written, to skip a re-read. */
+  current?: PlanSnapshot,
 ): Promise<PlanSnapshot> {
   // Views depend on index + bodies, so compute them against the new index.
-  const interim = await readPlan(ctx);
+  const interim = current ?? (await readPlan(ctx));
   const views = computeStageViews(index, interim.bodies);
 
   await mkdir(ctx.dir, { recursive: true });
@@ -817,7 +842,13 @@ async function writeIndex(
     "utf8",
   );
 
-  return readPlan(ctx);
+  // Writing files lands no commit: reuse the log when its bound is the same.
+  return readPlan(
+    ctx,
+    interim.index?.createdAt === index.createdAt
+      ? snapshotCommits.get(interim)
+      : undefined,
+  );
 }
 
 /**
@@ -853,8 +884,15 @@ export async function approveStage(
   }
 
   const view = snap.views[target];
+  // Hand edits made alongside an upstream's (accepted first, in plan order)
+  // are the developer's own consistent revision: rebase them onto the
+  // upstream as it now stands instead of calling them stale.
+  const acceptingEdits =
+    view.editedSinceApproval && upstreamReady(snap, target) === null;
+  const upstream = UPSTREAM[target];
+  const upstreamBody = upstream === null ? undefined : snap.bodies[upstream];
 
-  if (view.status === "stale") {
+  if (view.status === "stale" && !acceptingEdits) {
     throw new CliError(
       `${PLAN_FILES[target]} is stale (${view.staleBecause ?? "upstream changed"}) — regenerate it instead.`,
     );
@@ -876,6 +914,10 @@ export async function approveStage(
       status: "approved",
       approvedAt: now,
       sha: hashDoc(target, body),
+      upstreamSha:
+        acceptingEdits && upstream !== null && upstreamBody !== undefined
+          ? hashDoc(upstream, upstreamBody)
+          : record.upstreamSha,
     },
     "approved",
   );
@@ -1136,6 +1178,20 @@ export async function runPlan(
     return [
       "Every stage is approved.",
       "`sinscribe plan --sync` reports progress; `sinscribe plan --loop-prompt` prints the agent contract.",
+    ].join("\n");
+  }
+
+  // "Next" because it was hand-edited after approval: regenerating would
+  // drop the edits and overwrite the file. Accept them, or revise them.
+  if (
+    spec.stage === null &&
+    spec.feedback === null &&
+    snap.views[stage].editedSinceApproval
+  ) {
+    return [
+      `${ctx.dirRel}/${PLAN_FILES[stage]} was edited after approval.`,
+      `Accept the edits with: sinscribe plan --approve --stage ${stage}`,
+      `or revise them with: sinscribe plan --stage ${stage} --feedback "…"`,
     ].join("\n");
   }
 

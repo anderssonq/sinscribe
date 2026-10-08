@@ -77,7 +77,11 @@ describe("ClaudeStreamParser", () => {
         result: "x",
       }),
     );
-    expect(ok.result).toEqual({ isError: false, message: "x" });
+    expect(ok.result).toEqual({
+      isError: false,
+      message: "x",
+      subtype: "success",
+    });
 
     const failed = new ClaudeStreamParser();
 
@@ -88,6 +92,10 @@ describe("ClaudeStreamParser", () => {
         errors: ["a", "b"],
       }),
     );
-    expect(failed.result).toEqual({ isError: true, message: "a; b" });
+    expect(failed.result).toEqual({
+      isError: true,
+      message: "a; b",
+      subtype: "error_during_execution",
+    });
   });
 });

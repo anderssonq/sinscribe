@@ -1,0 +1,5 @@
+---
+"sinscribe": patch
+---
+
+Fix the issues found reviewing the AI session context and spec plan work. The read-only explorer for API-key providers can no longer write conversation history or evicted tool results into the repository. The session-context screen windows its exploration log, so long runs no longer freeze the terminal. Secret redaction keeps ordinary code references such as `token: RefreshTokenResponse`. Non-ASCII file names such as `docs/diseño.md` are listed correctly. In the spec plan: Modify and "Fix validator issues" revise the draft you reviewed instead of starting over; `--feedback` works in the interactive plan; a hand-edited approved stage is never regenerated over your edits; "Accept hand edits" works across several edited stages; a failed regeneration keeps your feedback and can go back to the draft; progress counts only `[T-n]` commits from this plan; and the loop prompt no longer has the agent edit tasks.md. Reads that were denied are no longer listed as files read. The Kiro answer is no longer cut short by lines that look like tool output. Claude's exhausted turn budget is reported clearly.
