@@ -1,6 +1,6 @@
 {
   "name": "sinscribe",
-  "version": "1.7.2",
+  "version": "1.9.0",
   "description": "A git-centric developer-workflow assistant CLI: PR descriptions, commit messages, branch names, project context briefs, and AI agent context files.",
   "license": "MIT",
   "author": "Andersson Quintero (https://github.com/anderssonq)",
@@ -20,6 +20,7 @@
   },
   "files": [
     "dist",
+    "!dist/standards/check.*",
     "templates",
     "README.md",
     "LICENSE"
@@ -49,6 +50,7 @@
     "changeset": "changeset",
     "version-packages": "changeset version",
     "release": "changeset publish",
+    "standards:check": "tsx src/standards/check.ts",
     "start": "node dist/cli.js",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage --coverage.include='src/**'"

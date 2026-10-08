@@ -182,10 +182,13 @@ this application"` even with a perfectly correct request and a valid token.
 
 Ported from the spec-driven workflow of `agent-skills`
 (spec → plan → tasks → build, human-gated), keeping its discipline and closing
-the gaps it leaves to prose:
+the gaps it leaves to prose. The requirements use EARS acceptance criteria as
+[Kiro specs](https://kiro.dev/docs/specs/) do, and the stage split matches
+[GitHub spec-kit](https://github.com/github/spec-kit); both are tracked in the
+standards registry (§5d) and stamped in each document's header.
 
 - **The files are the source of truth, not the conversation.** Approval is
-  recorded in `specs/<branch>/index.md` (a JSON comment written only by code);
+  recorded in `.sinscribe/specs/<branch>/index.md` (a JSON comment written only by code);
   stale/edited/next are recomputed from content hashes on every read, never
   stored. A teammate, a new session or another agent sees the same state, and
   approval is never inferred from chat. Task checkboxes are normalised out of
@@ -198,7 +201,7 @@ the gaps it leaves to prose:
   "Context read" list, the handoff's status table and its append-only `## Log`
   are deterministic. Regenerating the handoff feeds the agent's log and an
   authoritative checkbox summary back in, last in the prompt.
-- **Loop = strategy A.** Sinscribe does not implement code: `LOOP_PROMPT.md`
+- **Loop = strategy A.** Sinscribe does not implement code: `loop-prompt.md`
   is a deterministic contract for the user's own coding agent (one task,
   verify, tick, log, commit unless the rules forbid it; stop at checkpoints,
   blockers and spec gaps, which become _spec deltas_ instead of silent edits).
@@ -218,7 +221,7 @@ Read,Glob,Grep` (verified on 2.1.293: out-of-repo reads and `.env` reads —
   `.env` reads are rejected, the agent lives in a per-run directory a repo
   cannot shadow, and the answer is the first `> ` message after the last tool
   line), and everything else falls back to single-shot + a repo brief.
-- **`specs/` is tracked** (unlike `HANDOFF.md`/`AGENT_PROMPT.md`): the plan is
+- **`.sinscribe/specs/` is tracked** (unlike `.sinscribe/handoff.md`/`agent-prompt.md`): the plan is
   part of the branch's work. Public repos publish their plans; the dry run
   shows whether the directory is ignored.
 
@@ -249,7 +252,46 @@ and most of what it needs is already in the repository. The menu can draft it.
   ride at the end of `requirements`, so `pr`, `prompt`, `branch` and `plan`
   read the drafted context exactly like a typed one.
 
-## 5d. Recovery mode (`sinscribe recover`, 2026-10-08)
+## 5d. Agent standards (registry and drift, 2026-10-08)
+
+Everything Sinscribe writes for an agent to read (`AGENTS.md`, `CLAUDE.md`,
+`.claude/agents/*.md`, spec plans) follows a published standard, and those
+standards move as fast as the agents do. So the answer to "what is this based
+on?" lives in code, not in memory:
+
+- **One registry.** `src/standards/registry.ts` lists every standard with its
+  canonical URL, the commands that follow it, the date and version it was last
+  verified against, the concrete rules (line budgets, required frontmatter,
+  name shape) and how to detect an upstream change. Prompts read their limits
+  from it; nothing repeats them as literals.
+- **The code owns the format, the model writes the prose.** After `agents` and
+  `agent-setup` write their files, `src/standards/validate.ts` checks them
+  against the same rules and appends a "Standards check" block to the run's
+  summary. Warnings, never errors: the files are already on disk.
+- **AGENTS.md is canonical.** It is the cross-agent open standard (Agentic AI
+  Foundation). Claude Code reads it only when there is no CLAUDE.md, so
+  `agents --target both` writes a CLAUDE.md that imports it with `@AGENTS.md`
+  instead of a second copy that drifts.
+- **No per-tool copies.** Kiro, Cursor, GitHub Copilot and Codex read
+  AGENTS.md natively (Gemini CLI does when `context.fileName` lists it), so
+  Sinscribe does not write `.kiro/steering/`, `.cursor/rules/` or
+  `.github/copilot-instructions.md` duplicates. Those formats are tracked in the
+  registry with a `readsAgentsMd` note, which the `agents` dry run prints; if a
+  tool drops AGENTS.md support, the drift check is where it shows up first.
+- **Subagents do not pin a model.** A hard-coded `model:` goes stale with
+  every model release; definitions inherit the session's model, and read-only
+  roles get a restricted `tools:` list.
+- **Drift is an alarm, not a memory.** `pnpm standards:check` compares each
+  tracked source (latest commit, release tag, or the hash of a `.md` docs page)
+  with `standards.lock.json`. `.github/workflows/standards-drift.yml` runs it
+  weekly and opens or comments on one `standards-drift` issue. Closing it means
+  reading the source, then either adjusting rules/prompts and bumping
+  `verifiedOn` (with a changeset) or noting "no impact" — and in both cases
+  committing the refreshed lock (`pnpm standards:check --update`).
+- **No quality claims yet.** The validator checks shape, not usefulness. Until
+  an evaluation harness exists, nothing here says the output is "better".
+
+## 5e. Recovery mode (`sinscribe recover`, 2026-10-08)
 
 Teams that let a CI pipeline of AI agents build a branch end up with branches
 the pipeline gave up on: fix attempts exhausted, tests red, a draft PR and a

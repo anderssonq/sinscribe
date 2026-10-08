@@ -1,5 +1,6 @@
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { getSinscribeDir } from "../constants.js";
 
 export type SessionContext = {
   feature: string;
@@ -31,7 +32,6 @@ export type BranchSession = {
   updatedAt: string;
 };
 
-const SESSIONS_DIRNAME = ".sinscribe";
 const MAX_KEY_LENGTH = 100;
 
 /** Turns a branch name into a safe session filename key. */
@@ -45,7 +45,7 @@ export function sanitizeBranchKey(branch: string): string {
 }
 
 export function getSessionsDir(repoRoot: string): string {
-  return path.join(repoRoot, SESSIONS_DIRNAME, "sessions");
+  return path.join(getSinscribeDir(repoRoot), "sessions");
 }
 
 export function getSessionPath(repoRoot: string, branch: string): string {
@@ -92,7 +92,7 @@ export async function saveSession(
   const dir = getSessionsDir(repoRoot);
 
   await mkdir(dir, { recursive: true });
-  await ensureSelfIgnore(path.join(repoRoot, SESSIONS_DIRNAME));
+  await ensureSelfIgnore(getSinscribeDir(repoRoot));
 
   const payload: BranchSession = {
     ...session,

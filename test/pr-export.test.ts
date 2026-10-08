@@ -8,11 +8,11 @@ import {
 } from "../src/domain/pr-export.js";
 
 describe("getPrExportPath", () => {
-  it("joins the fixed filename onto the repo root", () => {
+  it("joins the lowercase filename onto the repo's .sinscribe dir", () => {
     expect(getPrExportPath("/repo")).toBe(
-      path.join("/repo", "PR_DESCRIPTION.md"),
+      path.join("/repo", ".sinscribe", "pr-description.md"),
     );
-    expect(PR_EXPORT_FILENAME).toBe("PR_DESCRIPTION.md");
+    expect(PR_EXPORT_FILENAME).toBe("pr-description.md");
   });
 });
 

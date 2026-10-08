@@ -8,11 +8,11 @@ import {
 } from "../src/domain/docs-export.js";
 
 describe("getDocsExportPath", () => {
-  it("joins the fixed filename onto the repo root", () => {
+  it("joins the lowercase filename onto the repo's .sinscribe dir", () => {
     expect(getDocsExportPath("/repo")).toBe(
-      path.join("/repo", "PROJECT_DOCUMENTATION.md"),
+      path.join("/repo", ".sinscribe", "project-documentation.md"),
     );
-    expect(DOCS_EXPORT_FILENAME).toBe("PROJECT_DOCUMENTATION.md");
+    expect(DOCS_EXPORT_FILENAME).toBe("project-documentation.md");
   });
 
   it("never collides with a lowercase documentation.md on case-insensitive filesystems", () => {

@@ -9,6 +9,7 @@ import {
   type SessionDraftRequest,
   type SessionDraftRun,
 } from "../domain/session-draft.js";
+import { HANDOFF_FILENAME } from "../domain/handoff-export.js";
 import {
   RECOVERY_DIRECTION,
   type RecoveryInput,
@@ -65,7 +66,7 @@ export function describeSessionEvidence(meta: SessionDraftMeta): string[] {
 
   return [
     `Branch ${meta.branch} → ${meta.baseRef ?? "(target not detected)"}${meta.ticket ? ` · ticket ${meta.ticket}` : ""}`,
-    `${plural(meta.commits, "commit")} · ${plural(meta.changedFiles, "changed file")} · ${plural(meta.docs, "markdown doc")}${meta.handoff ? " · HANDOFF.md" : ""}`,
+    `${plural(meta.commits, "commit")} · ${plural(meta.changedFiles, "changed file")} · ${plural(meta.docs, "markdown doc")}${meta.handoff ? ` · ${HANDOFF_FILENAME}` : ""}`,
     ...(meta.recovery == null
       ? []
       : [

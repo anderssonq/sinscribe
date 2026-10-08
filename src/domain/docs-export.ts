@@ -1,15 +1,19 @@
 import path from "node:path";
-import { CLI_DISPLAY_NAME, SINSCRIBE_VERSION } from "../constants.js";
+import {
+  CLI_DISPLAY_NAME,
+  getSinscribeDir,
+  SINSCRIBE_VERSION,
+} from "../constants.js";
 
 /**
- * Deliberately NOT "DOCUMENTATION.md": a repo may already keep a
- * documentation.md, and macOS filesystems are case-insensitive — that
- * name would silently overwrite it.
+ * Lives under .sinscribe/ and keeps the "project-" prefix anyway, so it can
+ * never be mistaken for (or, on case-insensitive filesystems, clobber) a
+ * documentation.md the repo keeps itself.
  */
-export const DOCS_EXPORT_FILENAME = "PROJECT_DOCUMENTATION.md";
+export const DOCS_EXPORT_FILENAME = "project-documentation.md";
 
 export function getDocsExportPath(repoRoot: string): string {
-  return path.join(repoRoot, DOCS_EXPORT_FILENAME);
+  return path.join(getSinscribeDir(repoRoot), DOCS_EXPORT_FILENAME);
 }
 
 export type DocsExportInput = {

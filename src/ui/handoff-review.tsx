@@ -50,7 +50,7 @@ type HandoffReviewFlowProps = {
 };
 
 /**
- * Offer → generate → review → refine → save cycle for HANDOFF.md, run after a
+ * Offer → generate → review → refine → save cycle for .sinscribe/handoff.md, run after a
  * prompt is approved and exported. Every failure here is reported as a summary
  * line rather than an error: the agent prompt is already safely exported, so
  * nothing in this flow may turn a successful run into a failed one.

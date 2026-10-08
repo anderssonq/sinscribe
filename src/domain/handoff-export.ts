@@ -1,17 +1,24 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
-import { CLI_DISPLAY_NAME, SINSCRIBE_VERSION } from "../constants.js";
+import {
+  CLI_DISPLAY_NAME,
+  getSinscribeDir,
+  SINSCRIBE_VERSION,
+} from "../constants.js";
 import { isFileNotFoundError } from "../env.js";
 
 /**
  * The steering document a prompting session leaves behind: where the branch
- * stands, what was decided, what is still open. Written at the repo root
- * alongside the other exports so any AI agent finds it without being told.
+ * stands, what was decided, what is still open. Written under .sinscribe/
+ * alongside the other exports, so the repo root stays the project's own.
  */
-export const HANDOFF_FILENAME = "HANDOFF.md";
+export const HANDOFF_FILENAME = "handoff.md";
+
+/** Where releases before the .sinscribe/ move wrote it; still read, never written. */
+const LEGACY_HANDOFF_FILENAME = "HANDOFF.md";
 
 export function getHandoffPath(repoRoot: string): string {
-  return path.join(repoRoot, HANDOFF_FILENAME);
+  return path.join(getSinscribeDir(repoRoot), HANDOFF_FILENAME);
 }
 
 /** The literal section skeleton the model must emit — everything below the stamped date. */
@@ -104,10 +111,22 @@ export async function loadHandoff(
     return null;
   }
 
-  let raw: string;
+  const raw =
+    (await readIfExists(getHandoffPath(repoRoot))) ??
+    (await readIfExists(path.join(repoRoot, LEGACY_HANDOFF_FILENAME)));
 
+  if (raw === null) {
+    return null;
+  }
+
+  const parsed = parseHandoff(raw);
+
+  return parsed.body.length > 0 ? parsed : null;
+}
+
+async function readIfExists(filePath: string): Promise<string | null> {
   try {
-    raw = await readFile(getHandoffPath(repoRoot), "utf8");
+    return await readFile(filePath, "utf8");
   } catch (error) {
     if (isFileNotFoundError(error)) {
       return null;
@@ -115,8 +134,4 @@ export async function loadHandoff(
 
     throw error;
   }
-
-  const parsed = parseHandoff(raw);
-
-  return parsed.body.length > 0 ? parsed : null;
 }

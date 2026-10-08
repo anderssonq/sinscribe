@@ -1,10 +1,14 @@
 import path from "node:path";
-import { CLI_DISPLAY_NAME, SINSCRIBE_VERSION } from "../constants.js";
+import {
+  CLI_DISPLAY_NAME,
+  getSinscribeDir,
+  SINSCRIBE_VERSION,
+} from "../constants.js";
 
-export const PR_EXPORT_FILENAME = "PR_DESCRIPTION.md";
+export const PR_EXPORT_FILENAME = "pr-description.md";
 
 export function getPrExportPath(repoRoot: string): string {
-  return path.join(repoRoot, PR_EXPORT_FILENAME);
+  return path.join(getSinscribeDir(repoRoot), PR_EXPORT_FILENAME);
 }
 
 export type PrExportInput = {

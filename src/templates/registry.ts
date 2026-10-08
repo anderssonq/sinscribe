@@ -1,6 +1,7 @@
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { getSinscribeDir } from "../constants.js";
 import { sinscribeTemplatesDir } from "../env.js";
 import { parseTemplate, type Template, type TemplateKind } from "./schema.js";
 
@@ -23,7 +24,7 @@ export function getUserTemplatesDir(): string {
 }
 
 export function getProjectTemplatesDir(repoRoot: string): string {
-  return path.join(repoRoot, ".sinscribe", "templates");
+  return path.join(getSinscribeDir(repoRoot), "templates");
 }
 
 /**

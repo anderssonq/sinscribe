@@ -1,4 +1,5 @@
-import { writeFile } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
+import { dirname } from "node:path";
 import { useEffect, useRef, useState } from "react";
 import { Box, Text } from "ink";
 import type { CommandSpec, GlobalFlags } from "../commands.js";
@@ -250,6 +251,8 @@ export function PromptReviewFlow({
       const exportPath = getPromptExportPath(meta.repoRoot);
 
       try {
+        await mkdir(dirname(exportPath), { recursive: true });
+
         await writeFile(
           exportPath,
           buildPromptExportMarkdown({

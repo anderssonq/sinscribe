@@ -1,5 +1,17 @@
 # sinscribe
 
+## 1.9.0
+
+### Minor Changes
+
+- 85013b8: Agent-facing output now follows tracked standards. `agents --target both` writes `AGENTS.md` as the canonical file and a `CLAUDE.md` that imports it with `@AGENTS.md`, so they no longer drift apart. `agent-setup` stops pinning `model: sonnet` (definitions inherit the session's model) and gives read-only roles a restricted `tools:` list. Both commands check what they wrote (frontmatter, name shape, line limits) and list any problem under "Standards check". Spec plans name EARS notation and stamp the standards they follow in their header. `agents --dry-run` lists which tools read `AGENTS.md` natively (Codex, Claude Code, Kiro, Cursor, GitHub Copilot, Gemini CLI) and how.
+
+## 1.8.0
+
+### Minor Changes
+
+- dec4a2a: Generated markdown now lives in `.sinscribe/` with lowercase names, so nothing lands at the repo root anymore: `.sinscribe/handoff.md`, `.sinscribe/pr-description.md`, `.sinscribe/agent-prompt.md`, `.sinscribe/project-documentation.md`, and spec plans in `.sinscribe/specs/<branch>/` with `loop-prompt.md`. An existing root `HANDOFF.md` is still read as context until the next save writes the new file. A plan still in `specs/<branch>/` stops `sinscribe plan` with the exact `git mv` to move it, rather than starting a second plan.
+
 ## 1.7.2
 
 ### Patch Changes

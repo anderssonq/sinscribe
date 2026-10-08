@@ -129,13 +129,13 @@ The first interactive run asks for your provider API key and stores it in
 |               | `--out <file>`        | Write the description to a file                                                     |
 | `prompt`      | `--type <type>`       | `feature` or `bugfix` (default: inferred from the description)                      |
 |               | `--out <file>`        | Write the prompt to a file                                                          |
-|               | `--handoff`           | Also write `HANDOFF.md` without asking                                              |
+|               | `--handoff`           | Also write `.sinscribe/handoff.md` without asking                                   |
 | `plan`        | `--stage <stage>`     | `requirements`\|`design`\|`tasks`\|`handoff` (default: the next stage needing work) |
 |               | `--feedback <text>`   | Revise the stage's current version with this feedback                               |
 |               | `--no-explore`        | Never let the model read the repository (single-shot)                               |
 |               | `--approve`           | Approve the stage's saved draft — offline, no model call                            |
 |               | `--sync`              | Match `[T-n]` commits and checkboxes; refresh progress — offline                    |
-|               | `--loop-prompt`       | Print `LOOP_PROMPT.md` (e.g. to pipe into a coding agent) — offline                 |
+|               | `--loop-prompt`       | Print `loop-prompt.md` (e.g. to pipe into a coding agent) — offline                 |
 | `recover`     | `--worktree`          | Open the branch in `.worktrees/<ticket>` instead of checking it out here            |
 |               | `--no-fetch`          | Resolve the branch from local refs only                                             |
 |               | `--from <file>`       | The pipeline's failure notes (ticket comment, CI log) for the AI to start from      |
@@ -147,7 +147,7 @@ The first interactive run asks for your provider API key and stores it in
 | `context`     | `--out <file>`        | Write the brief to a file                                                           |
 |               | `--format <md\|json>` | Output format (default: `md`)                                                       |
 | `docs`        | `--out <file>`        | Write the documentation to a file                                                   |
-| `agents`      | `--target <t>`        | `claude`\|`agents`\|`both` (default: `both`)                                        |
+| `agents`      | `--target <t>`        | `claude`\|`agents`\|`both` (default: `both`; CLAUDE.md imports AGENTS.md)           |
 |               | `--update`            | Surgically refresh existing files                                                   |
 | `agent-setup` | —                     | No options; the interactive flow asks what it needs                                 |
 | `template`    | `add --from <file>`   | Seed a new user template from an existing file                                      |
@@ -189,7 +189,7 @@ sinscribe branch ABC-123 add retry logic to uploader   # → feat/ABC-123-... su
 
 # Prompts & project understanding
 sinscribe prompt --type bugfix uploader crashes on empty files
-sinscribe prompt --handoff -p "add retry logic"   # also writes HANDOFF.md
+sinscribe prompt --handoff -p "add retry logic"   # also writes .sinscribe/handoff.md
 sinscribe plan                                     # spec plan, stage by stage, in the TUI
 sinscribe plan -p --stage design --feedback "reuse the queue module"   # writes a draft
 sinscribe plan --approve --stage design            # approve it (offline)
@@ -212,11 +212,11 @@ Ticket IDs (`ABC-123`, `#42`) are auto-detected from the branch name for `pr`
 and from the input for `branch`. When a branch session exists, its
 feature/ticket/requirements are fed to the model as business context.
 
-### Session handoff (`HANDOFF.md`)
+### Session handoff (`.sinscribe/handoff.md`)
 
 A prompting session normally ends with the useful part — what was decided,
 what is still open — only in your head. After you approve a prompt,
-`sinscribe prompt` offers to write a **`HANDOFF.md`** at the repo root: a
+`sinscribe prompt` offers to write a **`.sinscribe/handoff.md`**: a
 snapshot of where the branch stands, not an accumulated log.
 
 It is a fixed set of headings — where things stand, what was done, key
@@ -246,7 +246,7 @@ generated from the approved ones:
 | 3     | `tasks.md`        | Small verifiable tasks (`T-n`), each naming the ACs it implements and its exact verify command   |
 | 4     | `handoff.md`      | The implementation's memory: status, decisions, spec deltas, blockers, and an append-only log    |
 
-They live in `specs/<branch>/` with an `index.md` that links them and records
+They live in `.sinscribe/specs/<branch>/` with an `index.md` that links them and records
 which stage is approved — **tracked in git on purpose**, so the plan travels
 with the branch and a teammate can resume it (mind this in public repos). The
 index is written only by Sinscribe; every stage file links to the others.
@@ -265,7 +265,7 @@ index is written only by Sinscribe; every stage file links to the others.
   after it stale until it is regenerated (or the edit is accepted). Ticking a
   task's checkbox is progress, not an edit.
 
-**The implementation loop.** Approving the tasks writes `LOOP_PROMPT.md`: the
+**The implementation loop.** Approving the tasks writes `loop-prompt.md`: the
 operating contract for your coding agent (Claude Code, Codex, …). The agent
 takes one task at a time in dependency order, verifies it with its command,
 ticks it, logs it in `handoff.md`, commits it with `[T-n]` in the subject
@@ -496,7 +496,7 @@ The menu (bare `sinscribe`) is **context-first**: on a branch with no saved
 context it asks how to create one — generated with AI or written by hand — and
 the "Create PR description", "Create branch name", "Create feature or bugfix
 prompt" and "Spec plan (SDD)" items ask the same before they run (a spec plan already
-in `specs/<branch>/` carries its own feature, so it opens without one). A session captures **business context** per
+in `.sinscribe/specs/<branch>/` carries its own feature, so it opens without one). A session captures **business context** per
 branch — feature description, ticket ID, requirements, and the **target branch**
 it merges into — stored in `<repo>/.sinscribe/sessions/<branch>.json`.
 
@@ -508,7 +508,7 @@ drafts the context instead of you typing every field — but you steer it:
 1. **Direction.** You say what the session is for and what it should achieve —
    one line is enough; paste ticket text, rules or the name of a report if you
    have them. Before you type, the screen shows what the AI will see: branch,
-   detected ticket, commits, changed files, markdown docs, `HANDOFF.md`.
+   detected ticket, commits, changed files, markdown docs, `.sinscribe/handoff.md`.
 2. **Evidence.** The AI looks for code and markdown documents (reports, notes,
    specs, handoffs) related to your direction — **read-only**: with the Claude
    Code provider through `claude --restricted` with Read/Glob/Grep, with Kiro
