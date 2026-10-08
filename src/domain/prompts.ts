@@ -1,5 +1,6 @@
 import type { Template } from "../templates/schema.js";
 import { getLlmPlaceholderNames } from "../templates/render.js";
+import { STANDARDS } from "../standards/registry.js";
 import { HANDOFF_SECTIONS } from "./handoff-export.js";
 
 export const JSON_ONLY_INSTRUCTION =
@@ -272,6 +273,11 @@ export function createAgentsSystemPrompt(
       : target === "claude"
         ? "/CLAUDE.md"
         : "/AGENTS.md";
+  const budget = STANDARDS["agents-md"].rules.lineBudget;
+  // Claude Code reads AGENTS.md only when no CLAUDE.md exists, and imports it
+  // with `@AGENTS.md` otherwise — so one canonical file plus an importing
+  // CLAUDE.md keeps every agent on the same instructions without duplication.
+  const bothRule = `- AGENTS.md is the canonical file (the open standard, read by Codex, Copilot, Cursor, Gemini CLI, Kiro and others): put all shared content there. /CLAUDE.md must start with the line "@AGENTS.md" (Claude Code's import syntax) and add only what is specific to Claude Code — or nothing else. Never duplicate AGENTS.md content into CLAUDE.md. If an existing CLAUDE.md holds shared instructions, move them into AGENTS.md.`;
 
   return appendRules(
     `You are Sinscribe, generating AI agent context files for this repository by inferring them from the project itself.
@@ -289,9 +295,9 @@ A good agent context file contains, briefly:
 
 Rules:
 - Every claim must come from files you actually inspected. Never invent commands or conventions.
-- Keep each file under ~80 lines. Agents read this on every task; brevity is a feature.
-- When writing both files, they may share content; write both fully.
-- Write the file(s) with write_file/edit_file using virtual paths (${files}).
+- Keep each file under ~${budget} lines. Agents read this on every task; brevity is a feature. For each line ask: would removing it cause an agent to make a mistake? If not, cut it.
+- Plain markdown, no frontmatter. Prefer exact commands and paths over prose.
+${target === "both" ? `${bothRule}\n` : ""}- Write the file(s) with write_file/edit_file using virtual paths (${files}).
 - Only write ${files}. Do not modify anything else.
 - Finish with a short summary of what you wrote or changed.`,
     rules,
@@ -371,22 +377,24 @@ ${AGENTIC_EXPLORE_PREAMBLE}
 
 ${input.stack.length > 0 ? `The analysis pass found this stack: ${input.stack.join(", ")}. Confirm anything you rely on by reading the file it comes from.\n` : ""}${answersBlock}
 ${createBlock}${updateBlock}
-Each file is a standalone agent definition in this format:
+Each file is a standalone Claude Code subagent definition in this format:
 
 ---
 name: <the file's slug>
 description: <when to invoke this agent, in the third person, with two or three concrete example requests that should trigger it>
-model: sonnet
+tools: <only for agents that never edit files: Read, Grep, Glob — plus Bash if they must run commands. Omit the whole line for agents that write code.>
 ---
 
 <the agent's instructions>
+
+Do not add a "model" field — the agent inherits the session's model, which keeps the definition valid as models change. Use no other frontmatter fields.
 
 What makes these definitions good:
 - The description is the only thing a dispatcher reads when choosing an agent. Make it trigger-oriented and specific ("Use when adding or changing a NestJS controller, module, or provider…"), never a job title.
 - Open the body with the agent's scope in one or two sentences, then its explicit non-goals — what it must hand off rather than touch.
 - Name this project's real commands, paths, and patterns: the actual test command, the actual directory a controller lives in, the conventions the existing code already follows. A definition that would fit any project is worthless.
 - Prefer imperative instructions over description. Say what to do and in what order.
-- Keep each file under about 60 lines. Agents read this on every task; brevity is a feature.
+- Keep each file under about ${STANDARDS["claude-subagent"].rules.lineBudget} lines. Agents read this on every task; brevity is a feature.
 
 Rules:
 - Every claim must come from a file you actually inspected or from the author's answers above. Never invent a command, a path, or a convention.
@@ -488,6 +496,7 @@ ${PLAN_REQUIREMENTS_SECTIONS}
 
 Rules:
 - Every acceptance criterion is specific, testable and observable. Rewrite vague goals as measurable conditions ("fast" → "responds in < 300 ms for 1k records"). If you cannot make one testable, it is an open question, not a criterion.
+- Write every criterion in EARS notation (Easy Approach to Requirements Syntax, as used by Kiro specs): "WHEN <trigger> THE SYSTEM SHALL <outcome>"; use "IF <unwanted condition> THEN THE SYSTEM SHALL …" for error cases and "WHILE <state> …" for state-driven behavior.
 - Number requirements REQ-1, REQ-2, … and their criteria AC-<req>.<n> (AC-1.1, AC-1.2, AC-2.1, …). One observable behavior per criterion; cover error and edge cases, not just the happy path.
 - Requirements describe behavior a user or caller can observe. Implementation choices (libraries, file layout, schemas) belong to the design, not here.
 - Surface every gap you filled as an assumption. Never silently resolve an ambiguity — half of misalignment is silent disagreement about what is NOT being built, so "Out of scope" is mandatory.

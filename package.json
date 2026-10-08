@@ -20,6 +20,7 @@
   },
   "files": [
     "dist",
+    "!dist/standards/check.*",
     "templates",
     "README.md",
     "LICENSE"
@@ -49,6 +50,7 @@
     "changeset": "changeset",
     "version-packages": "changeset version",
     "release": "changeset publish",
+    "standards:check": "tsx src/standards/check.ts",
     "start": "node dist/cli.js",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage --coverage.include='src/**'"

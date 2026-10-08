@@ -1,10 +1,14 @@
-import { access, readdir } from "node:fs/promises";
+import { access, readFile, readdir } from "node:fs/promises";
 import path from "node:path";
 import type { GlobalFlags } from "../commands.js";
 import { ensureGitRepo, getRepoRoot } from "../git/repo.js";
 import { runAgent } from "../llm/agent.js";
 import type { RunCallbacks } from "../llm/events.js";
 import { extractJsonObject } from "../llm/single-shot.js";
+import {
+  formatStandardsReport,
+  validateAgainstStandard,
+} from "../standards/validate.js";
 import { CliError } from "./errors.js";
 import {
   createAgentPlanSystemPrompt,
@@ -352,8 +356,43 @@ export async function writeAgentSetup(
       ...callbacks,
     },
   );
+  const report = formatStandardsReport(
+    await checkAgentFiles(
+      repoRoot,
+      input.roster.map((agent) => agent.id),
+    ),
+  );
 
-  return text.trim() || "Done.";
+  return `${text.trim() || "Done."}${report}`;
+}
+
+/**
+ * Validates written definitions against the Claude Code subagent standard
+ * (src/standards/registry.ts). Files the agent did not write are reported, since
+ * the roster said they would exist.
+ */
+export async function checkAgentFiles(
+  repoRoot: string,
+  ids: string[],
+): Promise<Array<{ file: string; warnings: string[] }>> {
+  return Promise.all(
+    ids.map(async (id) => {
+      const file = agentVirtualPath(id).slice(1);
+
+      try {
+        const content = await readFile(agentFilePath(repoRoot, id), "utf8");
+
+        return {
+          file,
+          warnings: validateAgainstStandard("claude-subagent", content, {
+            expectedName: id,
+          }),
+        };
+      } catch {
+        return { file, warnings: ["was not written"] };
+      }
+    }),
+  );
 }
 
 /**
