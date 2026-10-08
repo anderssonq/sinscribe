@@ -2,8 +2,13 @@ import { describe, expect, it } from "vitest";
 import { providerExploreKind } from "../src/constants.js";
 import {
   buildKiroExploreAgentConfig,
+  describeMissingAnswer,
+  isLegacyKiroTranscript,
   KIRO_EXPLORE_AGENT_NAME,
+  KiroToolTracker,
   parseKiroExploreOutput,
+  parseModernKiroAnswer,
+  resolveReadNames,
 } from "../src/llm/kiro-cli/explore.js";
 
 const REPO = "/work/demo-repo";
@@ -147,6 +152,103 @@ describe("parseKiroExploreOutput", () => {
       "Just the answer.",
     );
     expect(parseKiroExploreOutput("no marker at all", REPO).text).toBe("");
+  });
+});
+
+describe("kiro-cli 2.28 transcript", () => {
+  // Shaped by a real 2.28.0 run: narration and answer on stdout with no
+  // markers, tool traffic on stderr with bare file names.
+  const narration =
+    "I'll look at the two explorers alongside package.json and the README.";
+  const answer = "# Comparison\n\n- One\n\n> A quoted line.";
+
+  it("starts the answer after the last completed tool call", () => {
+    const tracker = new KiroToolTracker();
+    let stdout = narration;
+    const read = tracker.push(
+      "\n[tool] Reading explore.ts:1, package.json:1, README.md:1-1\n" +
+        "[tool] status: Completed\n",
+      stdout.length,
+    );
+
+    stdout += answer;
+
+    expect(read).toEqual(["explore.ts", "package.json", "README.md"]);
+    expect(isLegacyKiroTranscript(stdout, tracker.sawToolLine)).toBe(false);
+    expect(parseModernKiroAnswer(stdout, tracker.answerOffset)).toBe(answer);
+  });
+
+  it("does not count a failed call's reads, even across chunks", () => {
+    const tracker = new KiroToolTracker();
+
+    expect(
+      tracker.push(
+        "[tool] Reading .env:1\n[denied] no approval\n[tool] sta",
+        0,
+      ),
+    ).toEqual([]);
+    expect(tracker.push("tus: Failed\n", 0)).toEqual([]);
+    expect(
+      tracker.push(
+        "[tool] Reading listing src, a.ts:1-1\n[tool] status: Completed\n",
+        5,
+      ),
+    ).toEqual(["a.ts"]);
+    expect(tracker.names).toEqual(["a.ts"]);
+    expect(tracker.answerOffset).toBe(5);
+  });
+
+  it("maps bare names to tracked paths, skipping ambiguous ones", () => {
+    expect(
+      resolveReadNames(
+        ["explore.ts", "package.json", "missing.md"],
+        ["src/kiro/explore.ts", "src/claude/explore.ts", "package.json"],
+      ),
+    ).toEqual(["package.json"]);
+  });
+
+  it("takes the whole stdout when the model used no tool", () => {
+    expect(isLegacyKiroTranscript("Just the answer.\n", false)).toBe(false);
+    expect(parseModernKiroAnswer("Just the answer.\n", 0)).toBe(
+      "Just the answer.",
+    );
+  });
+
+  it("still recognises the 2.3.0 transcript", () => {
+    expect(
+      isLegacyKiroTranscript(
+        `Reading file: ${REPO}/README.md, all lines (using tool: read)\n> Hi`,
+        false,
+      ),
+    ).toBe(true);
+    expect(isLegacyKiroTranscript("> Just the answer.\n", false)).toBe(true);
+  });
+});
+
+describe("describeMissingAnswer", () => {
+  it("quotes Kiro's last output so the cause is visible", () => {
+    const message = describeMissingAnswer(
+      "kiro-cli",
+      [
+        `Reading file: ${REPO}/README.md, all lines (using tool: read)`,
+        "\u001b[31mError: You have reached the limit for requests\u001b[0m",
+        " ▸ Credits: 0.00 • Time: 1s",
+      ].join("\n"),
+      "",
+      [],
+    );
+
+    expect(message.split("\n")[0]).toBe(
+      "kiro-cli explored but returned no answer (0 file(s) read): " +
+        "Error: You have reached the limit for requests",
+    );
+    expect(message).not.toContain("Credits");
+  });
+
+  it("says so when Kiro printed nothing", () => {
+    expect(describeMissingAnswer("kiro-cli", "", "\n", [])).toContain(
+      "It printed nothing.",
+    );
   });
 });
 
