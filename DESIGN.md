@@ -309,6 +309,14 @@ diagnosis somewhere. `recover` is the developer's way back in.
   diagnosis, and rules that shape the draft into a takeover brief
   (`Failure:` / `Remaining:` lines). The output is an ordinary session
   context, so the existing bugfix prompt and spec plan take it from there.
+- **Never the base branch.** Recovering `main` reads a tree without anything
+  the pipeline wrote, and the draft then plans around the absence of its own
+  work (a plan that recreates locked tests). The CLI, the dry run and the menu
+  refuse the base branch and ask for the failed branch or ticket.
+- **The goal is Sinscribe's, the feature is the branch's.** The pre-filled
+  recovery goal is not kept in `feature` the way an author's direction is,
+  and an echo of it is stripped — `feature` titles everything built on it.
+  Words the author adds to the goal are kept.
 - **Never weaken the tests.** Pipelines hold agents to tests (often
   hash-locked). The recovery rules forbid proposing to edit, skip or delete
   them; a test that looks wrong becomes an open question for the developer.

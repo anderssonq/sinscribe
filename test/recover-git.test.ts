@@ -6,6 +6,7 @@ import { openRecoveryWorkspace } from "../src/domain/recover.js";
 import {
   matchRecoveryTarget,
   pickRecoveryBranch,
+  recoveryBaseConflict,
   type BranchListing,
 } from "../src/git/recover.js";
 import { git, initRepo, makeTempDir, removeDir } from "./git-fixture.js";
@@ -23,6 +24,18 @@ function spec(overrides: Partial<RecoverSpec> = {}): RecoverSpec {
     ...overrides,
   };
 }
+
+describe("recoveryBaseConflict", () => {
+  it.each([
+    ["main", "origin/main", true],
+    ["main", "main", true],
+    ["develop", "upstream/develop", true],
+    ["ai/BIN-42", "origin/main", false],
+    ["main", null, false],
+  ])("%s against base %s → refused: %s", (branch, base, refused) => {
+    expect(recoveryBaseConflict(branch, base) !== null).toBe(refused);
+  });
+});
 
 describe("matchRecoveryTarget", () => {
   const listing: BranchListing = {
@@ -218,13 +231,32 @@ describe("openRecoveryWorkspace", () => {
   });
 
   it("recovers the current branch without moving when no target is given", async () => {
+    await git(work, "checkout", "-q", "kiro/ABC-123");
+
     const workspace = await openRecoveryWorkspace(spec({ target: null }), work);
 
     expect(workspace).toMatchObject({
-      branch: "main",
+      branch: "kiro/ABC-123",
       workdir: work,
       mode: "current",
     });
+  });
+
+  it("refuses to recover the base branch, in place or by name", async () => {
+    await expect(
+      openRecoveryWorkspace(spec({ target: null }), work),
+    ).rejects.toThrow(
+      /main is the base branch \(origin\/main\).*sinscribe recover <ticket\|branch>/u,
+    );
+
+    await git(work, "checkout", "-q", "-b", "scratch");
+    await expect(
+      openRecoveryWorkspace(spec({ target: "main", fetch: false }), work),
+    ).rejects.toThrow(/main is the base branch/u);
+    // Refused before anything moved.
+    expect(await git(work, "rev-parse", "--abbrev-ref", "HEAD")).toBe(
+      "scratch",
+    );
   });
 
   it("does not see a remote branch it was told not to fetch", async () => {

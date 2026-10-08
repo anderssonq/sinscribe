@@ -8,6 +8,7 @@ import {
   matchRecoveryTarget,
   pickRecoveryBranch,
   prepareRecoveryWorkspace,
+  recoveryBaseConflict,
   RECOVERY_WORKTREES_DIR,
   type RecoveryBranch,
   type RecoveryWorkspace,
@@ -67,6 +68,15 @@ export async function openRecoveryWorkspace(
       );
     }
 
+    const conflict = recoveryBaseConflict(
+      branch,
+      await resolveBaseRef(cwd, null),
+    );
+
+    if (conflict !== null) {
+      throw new CliError(conflict);
+    }
+
     return {
       branch,
       workdir: repoRoot,
@@ -82,6 +92,15 @@ export async function openRecoveryWorkspace(
   }
 
   const branch = await resolveRecoveryBranch(cwd, spec.target);
+  const conflict = recoveryBaseConflict(
+    branch.name,
+    await resolveBaseRef(cwd, null),
+  );
+
+  // Checked before anything moves: `recover main` must not check it out.
+  if (conflict !== null) {
+    throw new CliError(conflict);
+  }
 
   try {
     const workspace = await prepareRecoveryWorkspace(cwd, branch, {
@@ -174,8 +193,10 @@ export async function dryRunRecover(
     (branchName !== null ? extractTicketId(branchName) : null) ??
     (spec.target !== null ? extractTicketId(spec.target) : null);
   const baseRef = await resolveBaseRef(cwd, null);
+  const conflict =
+    branchName === null ? null : recoveryBaseConflict(branchName, baseRef);
   const candidates =
-    branchName === null
+    branchName === null || conflict !== null
       ? []
       : await listRecoveryCandidates(repoRoot, { ticket, baseRef, ref });
   const workspaceLine =
@@ -190,6 +211,7 @@ export async function dryRunRecover(
     "",
     `Target:     ${spec.target ?? "(current branch)"}`,
     `Branch:     ${branchLine}`,
+    ...(conflict === null ? [] : [`Refused:    ${conflict}`]),
     `Fetch:      ${spec.target === null ? "(not needed)" : spec.fetch ? "yes, before resolving the branch" : "no (--no-fetch)"}`,
     `Workspace:  ${workspaceLine}`,
     `Ticket:     ${ticket ?? "(none detected)"}`,
