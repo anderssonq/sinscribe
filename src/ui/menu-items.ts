@@ -10,6 +10,7 @@ export type MenuChoice =
   | "pr"
   | "prompt"
   | "plan"
+  | "recover"
   | "branch"
   | "docs"
   | "agent-setup"
@@ -85,6 +86,12 @@ export const MENU_ITEMS: MenuItem[] = [
     id: "plan",
     label: "Spec plan (SDD)",
     hint: "Requirements → design → tasks → handoff, then a loop prompt for your coding agent",
+    section: "GIT",
+  },
+  {
+    id: "recover",
+    label: "Recover a failed branch",
+    hint: "A pipeline gave up on this branch: the AI reads what it left (read-only), then a quick fix or a plan",
     section: "GIT",
   },
   {

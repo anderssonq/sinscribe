@@ -330,6 +330,8 @@ type SelectListProps = {
   /** Fires with the highlighted id on every cursor move (not on mount) — used
    *  for live preview. Selecting/cancelling is still onSelect/onCancel. */
   onHighlight?: (id: string) => void;
+  /** One-row lines the host renders above the list, kept out of its window. */
+  reservedRows?: number;
 };
 
 /** Generic arrow-key picker (used for the PR template and theme pickers). */
@@ -341,6 +343,7 @@ export function SelectList({
   isActive,
   initialId,
   onHighlight,
+  reservedRows = 0,
 }: SelectListProps) {
   const initialIndex = items.findIndex((item) => item.id === initialId);
   const [cursor, setCursor] = useState(initialIndex >= 0 ? initialIndex : 0);
@@ -421,7 +424,7 @@ export function SelectList({
   ).length;
   const wrappedRows =
     wrapLines(title, contentColumns).length - 1 + (footerRows - 1);
-  const budget = contentRows - SELECT_EXTRA_ROWS - wrappedRows;
+  const budget = contentRows - SELECT_EXTRA_ROWS - wrappedRows - reservedRows;
   const showFooter = budget >= SELECT_MIN_ROWS;
   const visible = Math.max(
     SELECT_MIN_ROWS,
@@ -918,6 +921,8 @@ type MultilinePromptProps = {
   initialValue?: string;
   /** Caps the rows shown in the box; by default only the viewport caps them. */
   visibleLines?: number;
+  /** One-row lines the host renders above the prompt, kept out of its budget. */
+  reservedRows?: number;
 };
 
 /** Smallest usable text area; below this the box sheds its hint row instead. */
@@ -943,6 +948,7 @@ export function MultilinePrompt({
   allowEmpty = false,
   initialValue = "",
   visibleLines,
+  reservedRows = 0,
 }: MultilinePromptProps) {
   const { contentColumns, contentRows } = useViewport();
   const [state, setState] = useState(() => makeEditorState(initialValue));
@@ -994,7 +1000,7 @@ export function MultilinePrompt({
   // window can add.
   const labelRows = wrapLines(label, contentColumns).length;
   const hintRows = wrapLines(hint, contentColumns).length;
-  const fixedRows = labelRows + 3;
+  const fixedRows = labelRows + 3 + reservedRows;
   // On a terminal too short for both, the hint is what goes: an unusable
   // one-row text area helps nobody, and an over-tall frame is worse than a
   // missing hint.

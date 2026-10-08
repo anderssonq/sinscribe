@@ -12,6 +12,7 @@ import { dryRunPlan, runPlan } from "./plan.js";
 import { dryRunPr, runPr } from "./pr.js";
 import { dryRunPrompt, runPrompt } from "./prompt.js";
 import { createChatSystemPrompt } from "./prompts.js";
+import { dryRunRecover, runRecover } from "./recover.js";
 import { describeRulesForDryRun, loadRules } from "./rules.js";
 import { runTemplateCommand } from "./template.js";
 
@@ -28,6 +29,8 @@ export async function executeDryRun(
       return dryRunPrompt(command, cwd);
     case "plan":
       return dryRunPlan(command, flags, cwd);
+    case "recover":
+      return dryRunRecover(command, cwd);
     case "commit":
       return dryRunCommit(command, cwd);
     case "branch":
@@ -70,6 +73,8 @@ export async function executeCommand(
       return runPrompt(command, flags, cwd, callbacks);
     case "plan":
       return runPlan(command, flags, cwd, callbacks);
+    case "recover":
+      return runRecover(command, flags, cwd, callbacks);
     case "commit":
       return runCommit(command, flags, cwd, callbacks);
     case "branch":

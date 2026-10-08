@@ -111,7 +111,8 @@ export function Header({
 
   return (
     <Box flexDirection="column" marginBottom={1}>
-      <Text>
+      {/* Every header line is one row: HEADER_CHROME_ROWS counts lines. */}
+      <Text wrap="truncate-end">
         <Text bold color={theme.accent}>
           {CLI_DISPLAY_NAME}
         </Text>
@@ -145,7 +146,12 @@ export function Header({
       <Text color={theme.faint} wrap="truncate-end">
         {process.cwd()}
       </Text>
-      {subtitle ? <Text color={theme.accent}>{subtitle}</Text> : null}
+      {/* One row: HEADER_CHROME_ROWS budgets the subtitle as a single line. */}
+      {subtitle ? (
+        <Text color={theme.accent} wrap="truncate-end">
+          {subtitle}
+        </Text>
+      ) : null}
     </Box>
   );
 }

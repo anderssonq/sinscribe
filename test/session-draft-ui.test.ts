@@ -54,6 +54,7 @@ vi.mock("../src/domain/session-draft.js", async (importOriginal) => {
           handoff: false,
           docs: 4,
           exploreKind: "claude-cli",
+          recovery: null,
         },
         generate: (request: SessionDraftRequest) => {
           requests.push(request);

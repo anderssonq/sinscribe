@@ -111,6 +111,7 @@ The first interactive run asks for your provider API key and stores it in
 | `sinscribe branch`      | Branch-name suggestions from a description/ticket                               |
 | `sinscribe prompt`      | Copy-ready feature/bugfix task prompt for your AI coding agent                  |
 | `sinscribe plan`        | Spec plan (SDD): requirements → design → tasks → handoff, plus an agent loop    |
+| `sinscribe recover`     | Take over a branch an automated pipeline could not finish, then fix or plan it  |
 | `sinscribe context`     | Structured project-context brief (markdown or JSON)                             |
 | `sinscribe docs`        | Project documentation with mermaid diagrams                                     |
 | `sinscribe agents`      | Generate/refresh `CLAUDE.md` + `AGENTS.md` from the repo                        |
@@ -135,6 +136,10 @@ The first interactive run asks for your provider API key and stores it in
 |               | `--approve`           | Approve the stage's saved draft — offline, no model call                            |
 |               | `--sync`              | Match `[T-n]` commits and checkboxes; refresh progress — offline                    |
 |               | `--loop-prompt`       | Print `loop-prompt.md` (e.g. to pipe into a coding agent) — offline                 |
+| `recover`     | `--worktree`          | Open the branch in `.worktrees/<ticket>` instead of checking it out here            |
+|               | `--no-fetch`          | Resolve the branch from local refs only                                             |
+|               | `--from <file>`       | The pipeline's failure notes (ticket comment, CI log) for the AI to start from      |
+|               | `--save`              | Save the drafted context without review (the `-p/--print` route)                    |
 | `commit`      | `--all`, `-a`         | Use all tracked changes, not only staged                                            |
 |               | `--scope <scope>`     | Force the Conventional Commit scope                                                 |
 |               | `--no-gitmoji`        | Skip the gitmoji prefix (it is on by default)                                       |
@@ -149,7 +154,8 @@ The first interactive run asks for your provider API key and stores it in
 
 `branch` takes a required ticket ID and/or description as positional arguments.
 `prompt` takes an optional description; without one it falls back to the saved
-session context.
+session context. `recover` takes an optional branch name or ticket ID; without
+one it recovers the current branch.
 
 ### Global options
 
@@ -188,6 +194,7 @@ sinscribe plan                                     # spec plan, stage by stage, 
 sinscribe plan -p --stage design --feedback "reuse the queue module"   # writes a draft
 sinscribe plan --approve --stage design            # approve it (offline)
 sinscribe plan --sync                              # progress from [T-n] commits + checkboxes
+sinscribe recover ABC-123 --worktree --from failure.md   # take over a branch a pipeline gave up on
 sinscribe context --format json --out context.json
 sinscribe agents --target claude --update
 
@@ -272,6 +279,41 @@ checkboxes and commits, without touching the log; regenerating the handoff
 feeds the agent's log back into it.
 
 Sinscribe does not run the loop itself (yet): the agent you already use does.
+
+### Recovering a failed branch (`sinscribe recover`)
+
+When an automated pipeline (AI agents in CI) works on a branch and gives up —
+its fix attempts ran out, tests stayed red — a developer takes over. `recover`
+makes that a few keystrokes instead of an archaeology session:
+
+1. **Open the branch.** `sinscribe recover ABC-123` fetches, finds the branch
+   (an exact name, or every branch carrying the ticket — the one that _ends_
+   with it wins, so `bot/ABC-123` beats `bot/ABC-123-design`), and checks it
+   out. With uncommitted work here it refuses; `--worktree` opens it in
+   `.worktrees/ABC-123` instead (kept out of `git status` through
+   `.git/info/exclude`) and reuses that worktree next time. A branch that is
+   only behind its remote is fast-forwarded; a diverged one is left alone and
+   reported. Without a target, the current branch is recovered in place.
+2. **Read what the pipeline left.** The AI drafts the branch's session context
+   in _recovery mode_ — read-only, exactly like **Generate session context with
+   AI**, but starting from the evidence: files whose path carries the ticket,
+   the reports, specs, plans, logs and lock files the branch changed, its
+   commits, and the diagnosis you pass with `--from` (the ticket comment or CI
+   output, copied to a file). The draft names what the branch must deliver,
+   lists one `Failure:` line per concrete failure and one `Remaining:` line per
+   missing piece, and never proposes weakening the tests the pipeline was held
+   to — a test or spec that looks wrong becomes an open question for you.
+3. **Fix it.** Review and approve the context as usual, then pick **Quick fix —
+   bugfix prompt** (one copy-ready prompt for your coding agent) or **Rework —
+   spec plan** (requirements → design → tasks). Pushing the fix is yours — it
+   is what re-triggers the pipeline.
+
+Nothing in `recover` knows which pipeline produced the branch. Team-specific
+rules — "never edit `tests/**` or `.locks/**`", "run `make test` before
+pushing" — belong in your project rules (`.sinscribe/rules.md`), which every
+step already follows. **Recover a failed branch** in the menu does the same for
+the current branch; `sinscribe recover -p --save` drafts and saves without
+review for scripts, so `sinscribe prompt --type bugfix -p` can follow it.
 
 ## Configuration
 

@@ -44,6 +44,19 @@ export type CommandSpec =
       /** Revise the on-disk version with this feedback (generate only). */
       feedback: string | null;
     }
+  | {
+      name: "recover";
+      /** Branch name or ticket id; null recovers the current branch. */
+      target: string | null;
+      /** Open the branch in its own worktree instead of checking it out here. */
+      worktree: boolean;
+      /** Fetch the remote before resolving the target. */
+      fetch: boolean;
+      /** File with the pipeline's failure notes, relative to the invocation. */
+      from: string | null;
+      /** Save the drafted context without review — the print-mode route. */
+      save: boolean;
+    }
   | { name: "commit"; all: boolean; scope: string | null; gitmoji: boolean }
   | { name: "branch"; input: string; type: BranchType | null }
   | { name: "context"; out: string | null; format: "md" | "json" }
@@ -71,6 +84,7 @@ const SUBCOMMANDS = [
   "pr",
   "prompt",
   "plan",
+  "recover",
   "commit",
   "branch",
   "context",
@@ -247,6 +261,8 @@ function parseSubcommand(
       return parsePrompt(args);
     case "plan":
       return parsePlan(args);
+    case "recover":
+      return parseRecover(args);
     case "commit":
       return parseCommit(args);
     case "branch":
@@ -703,6 +719,63 @@ function parsePlan(
   return { name: "plan", stage, action, explore, feedback };
 }
 
+function parseRecover(
+  args: string[],
+): CommandSpec | Extract<CliCommand, { kind: "error" }> {
+  let target: string | null = null;
+  let worktree = false;
+  let fetch = true;
+  let from: string | null = null;
+  let save = false;
+
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+
+    if (arg === "--worktree") {
+      worktree = true;
+      continue;
+    }
+
+    if (arg === "--no-fetch") {
+      fetch = false;
+      continue;
+    }
+
+    if (arg === "--save") {
+      save = true;
+      continue;
+    }
+
+    if (arg === "--from") {
+      const taken = takeValue(args, index);
+
+      if (taken === null) {
+        return error("--from requires a file path.");
+      }
+
+      from = taken;
+      index += 1;
+      continue;
+    }
+
+    if (arg.startsWith("-")) {
+      return error(`Unknown option for recover: ${arg}`);
+    }
+
+    if (target !== null) {
+      return error(`Unexpected argument: ${arg}`);
+    }
+
+    target = arg;
+  }
+
+  if (worktree && target === null) {
+    return error("--worktree needs the branch or ticket to recover.");
+  }
+
+  return { name: "recover", target, worktree, fetch, from, save };
+}
+
 function takeValue(args: string[], index: number): string | null {
   const next = args[index + 1];
 
@@ -740,6 +813,10 @@ Usage
   sinscribe plan [options]                 Spec plan (SDD): requirements → design → tasks → handoff in
                                            .sinscribe/specs/<branch>/, each reviewed and approved in turn, plus a
                                            loop-prompt.md that drives a coding agent task by task
+  sinscribe recover [ticket|branch]        Take over a branch an automated pipeline could not finish: open it
+                                           (in place or in a worktree), let the AI read its specs, logs and
+                                           commits read-only, review the drafted session context, then go on
+                                           with a quick bugfix prompt or the spec plan
   sinscribe commit [options]               Generate a commit message from staged changes
   sinscribe branch <ticket|description>    Suggest branch names
   sinscribe context [options]              Extract a structured project-context brief
@@ -767,6 +844,10 @@ Command options
             --sync              Match [T-n] commits and checkboxes; refresh progress (offline)
             --loop-prompt       Print loop-prompt.md, e.g. to pipe into a coding agent
                                 (-p/--print writes drafts only; approve them with --approve)
+  recover   --worktree          Open the branch in .worktrees/<ticket> instead of checking it out here
+            --no-fetch          Resolve the branch from local refs only
+            --from <file>       The pipeline's failure notes (ticket comment, CI log) for the AI to start from
+            --save              Save the drafted context without review (-p/--print only route)
   commit    --all, -a           Use all tracked changes, not only staged
             --scope <scope>     Force the conventional-commit scope
             --no-gitmoji        Skip the gitmoji prefix
@@ -805,6 +886,7 @@ Examples
   sinscribe plan -p --stage design --feedback "use the existing queue module"
   sinscribe plan --approve --stage design
   sinscribe plan --sync
+  sinscribe recover ABC-123 --worktree --from failure.md
   sinscribe context --out CONTEXT.md
   sinscribe docs
   sinscribe agents --target claude
