@@ -80,6 +80,7 @@ import { PlanFlow } from "./plan-flow.js";
 import { PromptReviewFlow } from "./prompt-review.js";
 import { SessionDraftFlow } from "./session-draft-review.js";
 import type { RecoveryInput } from "../domain/recover-evidence.js";
+import { recoveryBaseConflict } from "../git/recover.js";
 import {
   appendEvent,
   Header,
@@ -885,6 +886,19 @@ export function MenuApp({
         // The current branch: `sinscribe recover <ticket>` is what opens
         // another one (fetch, checkout or worktree) before the menu starts.
         if (ensureBranch("Recover a failed branch")) {
+          const conflict =
+            branch === null
+              ? null
+              : recoveryBaseConflict(
+                  branch,
+                  session?.context?.baseRef ?? detectedBase,
+                );
+
+          if (conflict !== null) {
+            showError("Recover a failed branch", conflict);
+            return;
+          }
+
           setMode({ view: "recover-ai", recovery: { diagnosisPath: null } });
         }
         return;

@@ -24,6 +24,7 @@ import {
 } from "./prompts.js";
 import {
   gatherRecoveryEvidence,
+  RECOVERY_DIRECTION,
   type RecoveryEvidence,
   type RecoveryInput,
 } from "./recover-evidence.js";
@@ -242,8 +243,20 @@ export async function createSessionDraftRun(
       llm,
       () => buildReadExcerpts(repoRoot, result.filesRead, knownFiles),
     );
-    const draft = finalizeDraft(parsed, {
-      direction,
+    // A model that echoes the recovery instruction back would make it the
+    // title of the context and of every plan built from it.
+    const reply =
+      recovery === null
+        ? parsed
+        : {
+            ...parsed,
+            feature: withoutRecoveryGoal(parsed.feature) || parsed.feature,
+          };
+    const draft = finalizeDraft(reply, {
+      // The pre-filled recovery goal is Sinscribe's instruction, not the
+      // author's words: only what the author added to it must stay in the
+      // feature (and so in every title built from it).
+      direction: recovery === null ? direction : withoutRecoveryGoal(direction),
       detectedTicket: context.ticket,
       previousTicket: options.previous?.ticket ?? null,
       evidence: [
@@ -599,6 +612,23 @@ export function finalizeDraft(
     sources,
     openQuestions: reply.openQuestions.slice(0, MAX_OPEN_QUESTIONS).map(redact),
   };
+}
+
+/**
+ * Text without the pre-filled recovery goal at its start: the whole goal, or
+ * just its opening sentence (what a model echoing it tends to keep). "" when
+ * nothing else is left.
+ */
+export function withoutRecoveryGoal(text: string): string {
+  const lead = RECOVERY_DIRECTION.slice(0, RECOVERY_DIRECTION.indexOf(".") + 1);
+
+  for (const prefix of [RECOVERY_DIRECTION, lead]) {
+    if (text.startsWith(prefix)) {
+      return text.slice(prefix.length).trim();
+    }
+  }
+
+  return text;
 }
 
 /** A short direction is the author's goal: it must stay in their words. */

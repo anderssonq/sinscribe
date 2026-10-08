@@ -8,7 +8,10 @@ import {
   listRecoveryCandidates,
   RECOVERY_DIRECTION,
 } from "../src/domain/recover-evidence.js";
-import { createSessionDraftRun } from "../src/domain/session-draft.js";
+import {
+  createSessionDraftRun,
+  withoutRecoveryGoal,
+} from "../src/domain/session-draft.js";
 import { loadSession } from "../src/session/store.js";
 import { git, initRepo, makeTempDir, removeDir } from "./git-fixture.js";
 
@@ -132,6 +135,32 @@ describe("dryRunRecover", () => {
     expect(await git(repo, "rev-parse", "--abbrev-ref", "HEAD")).toBe("main");
     expect(mocks.runExplore).not.toHaveBeenCalled();
   });
+
+  it("flags the base branch instead of listing its evidence", async () => {
+    await git(repo, "checkout", "main");
+
+    const output = await dryRunRecover(spec(), repo);
+
+    expect(output).toContain("Refused:    main is the base branch (main)");
+    expect(output).toContain("Evidence the AI would read first (0):");
+  });
+});
+
+describe("withoutRecoveryGoal", () => {
+  it("drops the pre-filled goal, or the opening sentence a model echoes", () => {
+    expect(withoutRecoveryGoal(RECOVERY_DIRECTION)).toBe("");
+    expect(
+      withoutRecoveryGoal(
+        `${RECOVERY_DIRECTION}\n\nThe PM confirmed: inclusive.`,
+      ),
+    ).toBe("The PM confirmed: inclusive.");
+    expect(
+      withoutRecoveryGoal(
+        "Recover this branch: an automated pipeline worked on it and could not finish. The branch implements BIN-42.",
+      ),
+    ).toBe("The branch implements BIN-42.");
+    expect(withoutRecoveryGoal("BIN-42 alerts")).toBe("BIN-42 alerts");
+  });
 });
 
 describe("recovery session draft", () => {
@@ -220,6 +249,49 @@ describe("recovery session draft", () => {
     );
     expect(fallback).toContain("--- tests/plan/ABC-123.yml ---");
     expect(fallback).not.toContain("TOKEN=secret");
+  });
+
+  it("keeps the recovery instruction out of the feature, the author's additions in", async () => {
+    mocks.runExplore.mockResolvedValue({
+      text: JSON.stringify({
+        ...JSON.parse(REPLY),
+        feature:
+          "Recover this branch: an automated pipeline worked on it and could not finish. BIN-42 predictive bin alerts — blocked on the threshold test.",
+      }),
+      modelId: "m",
+      mode: "claude-cli-readonly",
+      filesRead: [],
+      fallbackReason: null,
+    });
+
+    const run = await createSessionDraftRun(FLAGS, repo, {
+      previous: null,
+      recovery: { diagnosisPath: null },
+    });
+    const untouched = await run.generate({
+      feedback: null,
+      explore: true,
+      direction: RECOVERY_DIRECTION,
+    });
+
+    expect(untouched.feature).toBe(
+      "BIN-42 predictive bin alerts — blocked on the threshold test.",
+    );
+
+    const added = await (
+      await createSessionDraftRun(FLAGS, repo, {
+        previous: null,
+        recovery: { diagnosisPath: null },
+      })
+    ).generate({
+      feedback: null,
+      explore: true,
+      direction: `${RECOVERY_DIRECTION}\n\nThe PM confirmed the boundary is inclusive.`,
+    });
+
+    expect(added.feature).toBe(
+      "The PM confirmed the boundary is inclusive.\n\nBIN-42 predictive bin alerts — blocked on the threshold test.",
+    );
   });
 
   it("keeps the plain session draft free of recovery rules", () => {

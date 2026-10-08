@@ -29,6 +29,27 @@ export type RecoveryWorkspace = {
   notes: string[];
 };
 
+/**
+ * Why `branch` cannot be the one to recover, or null when it can. The base
+ * branch is where failed work is meant to land, never the failed work itself:
+ * recovering it reads the wrong tree and drafts a context (and a plan) from
+ * the absence of everything the pipeline wrote. A remote-qualified base
+ * ("origin/main") matches its local name. Without a known base, allow it.
+ */
+export function recoveryBaseConflict(
+  branch: string,
+  baseRef: string | null,
+): string | null {
+  if (
+    baseRef === null ||
+    (branch !== baseRef && !baseRef.endsWith(`/${branch}`))
+  ) {
+    return null;
+  }
+
+  return `${branch} is the base branch (${baseRef}), not a branch a pipeline left behind. Pass the failed branch or its ticket: sinscribe recover <ticket|branch>.`;
+}
+
 /** Worktrees live here, under the main checkout, kept out of git status. */
 export const RECOVERY_WORKTREES_DIR = ".worktrees";
 

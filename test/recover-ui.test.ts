@@ -13,12 +13,15 @@ import {
   vi,
 } from "vitest";
 import type { GlobalFlags } from "../src/commands.js";
-import { RECOVERY_DIRECTION } from "../src/domain/recover-evidence.js";
+import {
+  RECOVERY_DIRECTION,
+  type RecoveryInput,
+} from "../src/domain/recover-evidence.js";
 import type {
   SessionDraft,
   SessionDraftRequest,
 } from "../src/domain/session-draft.js";
-import { loadSession } from "../src/session/store.js";
+import { loadSession, saveSession } from "../src/session/store.js";
 import { MenuApp } from "../src/ui/menu-app.js";
 import { git, initRepo, makeTempDir, removeDir } from "./git-fixture.js";
 
@@ -181,13 +184,11 @@ async function drive(
   columns: number,
   rows: number,
   steps: Step[],
+  initialRecovery: RecoveryInput | null = { diagnosisPath: "/tmp/failure.md" },
 ): Promise<string[]> {
   const io = createFakeIO(columns, rows);
   const instance = render(
-    createElement(MenuApp, {
-      flags: FLAGS,
-      initialRecovery: { diagnosisPath: "/tmp/failure.md" },
-    }),
+    createElement(MenuApp, { flags: FLAGS, initialRecovery }),
     {
       stdout: io.stdout,
       stdin: io.stdin,
@@ -300,6 +301,39 @@ describe("MenuApp in recovery mode", () => {
     expect(
       afterCancel.some((frame) => frame.includes("Interactive chat")),
     ).toBe(true);
+  });
+
+  it("refuses to recover the base branch from the menu", async () => {
+    await git(repo, "checkout", "-q", "main");
+    // A saved context, so the menu opens on its action list.
+    await saveSession(repo, {
+      version: 1,
+      branch: "main",
+      context: {
+        feature: "x",
+        ticket: null,
+        requirements: null,
+        baseRef: null,
+      },
+      pr: null,
+      createdAt: "2026-10-08T00:00:00.000Z",
+      updatedAt: "2026-10-08T00:00:00.000Z",
+    });
+
+    const frames = await drive(
+      100,
+      40,
+      [
+        // Recover a failed branch is the ninth item.
+        ...Array.from({ length: 8 }, () => step("Interactive chat", DOWN)),
+        step("Recover a failed branch", ENTER),
+        step("main is the base branch", null),
+      ],
+      null,
+    );
+
+    expect(calls.options).toEqual([]);
+    expect(frames.join("\n")).toContain("sinscribe recover <ticket|branch>");
   });
 
   it.each([

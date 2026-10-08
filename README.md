@@ -293,7 +293,10 @@ makes that a few keystrokes instead of an archaeology session:
    `.worktrees/ABC-123` instead (kept out of `git status` through
    `.git/info/exclude`) and reuses that worktree next time. A branch that is
    only behind its remote is fast-forwarded; a diverged one is left alone and
-   reported. Without a target, the current branch is recovered in place.
+   reported. Without a target, the current branch is recovered in place — but
+   never the base branch (`main`, `develop`, …): there is nothing a pipeline
+   left there, so `recover` (and the menu item) refuse it and ask for the
+   failed branch or its ticket.
 2. **Read what the pipeline left.** The AI drafts the branch's session context
    in _recovery mode_ — read-only, exactly like **Generate session context with
    AI**, but starting from the evidence: files whose path carries the ticket,

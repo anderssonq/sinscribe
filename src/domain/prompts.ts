@@ -592,7 +592,7 @@ export const SESSION_DRAFT_SHAPE = `{
  * the pipeline was held to.
  */
 const RECOVERY_DRAFT_RULES = `- RECOVERY MODE. Start from the files listed as read-first, the diagnosis if one was given, and the commit messages; then confirm in the code and the tests. Look for specs, plans, test plans, logs, handoffs, reports and lock or manifest files the pipeline wrote.
-- "feature": what the branch must deliver, then one sentence on where it stands and why it is blocked.
+- "feature": what the branch must deliver (lead with the ticket and its title when the evidence names them), then one sentence on where it stands and why it is blocked. Never open it with the recovery instruction itself ("Recover this branch…") — it becomes the title of everything built from this context.
 - "requirements": the acceptance criteria the work is held to (from the spec, the test plan or the ticket), then one line per concrete failure starting with "Failure: " (the failing test, error or contradiction, with its file path), then one line per piece of work still missing starting with "Remaining: ".
 - Never propose making tests pass by weakening, skipping, deleting or editing them. If the evidence suggests a test or the spec itself is wrong or contradictory, put that in "openQuestions" for the developer to decide.
 - Where the diagnosis and the code disagree, trust the code and name the disagreement in "openQuestions".
