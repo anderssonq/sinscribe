@@ -576,8 +576,21 @@ export const SESSION_DRAFT_SHAPE = `{
   "openQuestions": ["what the repository cannot answer and the author must decide"]
 }`;
 
+/**
+ * Recovery mode: the branch was left by an automated pipeline that gave up.
+ * The draft is a takeover brief — what was being built, where it stands,
+ * what fails — and must never point the developer at weakening the tests
+ * the pipeline was held to.
+ */
+const RECOVERY_DRAFT_RULES = `- RECOVERY MODE. Start from the files listed as read-first, the diagnosis if one was given, and the commit messages; then confirm in the code and the tests. Look for specs, plans, test plans, logs, handoffs, reports and lock or manifest files the pipeline wrote.
+- "feature": what the branch must deliver, then one sentence on where it stands and why it is blocked.
+- "requirements": the acceptance criteria the work is held to (from the spec, the test plan or the ticket), then one line per concrete failure starting with "Failure: " (the failing test, error or contradiction, with its file path), then one line per piece of work still missing starting with "Remaining: ".
+- Never propose making tests pass by weakening, skipping, deleting or editing them. If the evidence suggests a test or the spec itself is wrong or contradictory, put that in "openQuestions" for the developer to decide.
+- Where the diagnosis and the code disagree, trust the code and name the disagreement in "openQuestions".
+`;
+
 export function createSessionDraftSystemPrompt(
-  options: { update?: boolean; feedback?: boolean } = {},
+  options: { update?: boolean; feedback?: boolean; recovery?: boolean } = {},
   rules: string | null,
 ): string {
   return appendRules(
@@ -596,7 +609,7 @@ Rules:
 - What the author states — in the direction or in feedback — is evidence too, and the strongest: every criterion, rule, limit or answer they give goes into "requirements" as its own line, not only into "feature".
 - "requirements" is null only when neither the author nor the repository supports a single criterion. Do not pad it.
 - Write in the language of the author's direction.
-${options.update ? "- You will receive the previous draft. Revise it: keep what is still accurate, change what the new input requires, and return the complete JSON (full replacement, not a patch).\n" : ""}${options.feedback ? '- The author reviewed the previous draft and gave feedback. Apply every point of it. Answers to open questions become requirements or scope and leave "openQuestions"; a changed goal changes "feature".\n' : ""}- ${JSON_ONLY_INSTRUCTION}`,
+${options.recovery ? RECOVERY_DRAFT_RULES : ""}${options.update ? "- You will receive the previous draft. Revise it: keep what is still accurate, change what the new input requires, and return the complete JSON (full replacement, not a patch).\n" : ""}${options.feedback ? '- The author reviewed the previous draft and gave feedback. Apply every point of it. Answers to open questions become requirements or scope and leave "openQuestions"; a changed goal changes "feature".\n' : ""}- ${JSON_ONLY_INSTRUCTION}`,
     rules,
   );
 }

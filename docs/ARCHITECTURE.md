@@ -40,35 +40,38 @@ Three properties drive most of the design:
 
 Each module owns its git reads, its prompt assembly, and its choice of runner.
 
-| File                                                                      | Responsibility                                                                                                                             |
-| ------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| `execute.ts`                                                              | Dispatch: `executeCommand()`, `executeDryRun()`, `isAgenticCommand()`, `isOfflineCommand()`.                                               |
-| `prompts.ts`                                                              | Every system-prompt builder, `appendRules()`, `JSON_ONLY_INSTRUCTION`.                                                                     |
-| `pr.ts`                                                                   | PR context gathering and the `createPrRun()` generate/refine/approve cycle.                                                                |
-| `prompt.ts`                                                               | Agent task prompts: `createPromptRun()`, kind inference, description resolution.                                                           |
-| `commit.ts`                                                               | `GITMOJI_BY_TYPE`, commit context, message assembly.                                                                                       |
-| `branch.ts`                                                               | Branch-name suggestions with a deterministic fallback.                                                                                     |
-| `branch-actions.ts`                                                       | The only module that writes to git (`checkout -b`, `branch -m`) plus session re-keying. Called from the UI, never from `executeCommand`.   |
-| `context.ts`, `docs.ts`, `agents.ts`                                      | Agentic commands. Each builds a prompt and calls `runAgent()`; the CLI writes `--out`, not the model.                                      |
-| `agent-setup.ts`                                                          | Two-pass agentic flow: `planAgentSetup()` (read-only) then `writeAgentSetup()` (path-whitelisted).                                         |
-| `handoff.ts`                                                              | `HANDOFF.md` generate/save cycle.                                                                                                          |
-| `plan.ts`                                                                 | Spec plan I/O: `loadPlanContext()`, `readPlan()` snapshot, `createStageRun()`, offline `approveStage()`/`syncPlan()`, dry run, print path. |
-| `plan-docs.ts`                                                            | Spec plan pure core: framing, hashing and staleness, `REQ`/`AC`/`T` parsers, coverage, progress, handoff zones, `LOOP_PROMPT.md`.          |
-| `session-draft.ts`                                                        | AI-drafted session context: `createSessionDraftRun()` (direction → explore → JSON draft → feedback rounds), `toSessionContext()`.          |
-| `repo-brief.ts`                                                           | Bounded repository orientation (tracked files, scripts, root rule docs) for single-shot spec stages.                                       |
-| `template.ts`                                                             | `list`/`show`/`add`/`edit`/`path`. The only command needing neither model nor credentials.                                                 |
-| `rules.ts`                                                                | Two-tier free-text rules appended to every system prompt.                                                                                  |
-| `pr-export.ts`, `prompt-export.ts`, `docs-export.ts`, `handoff-export.ts` | Export filenames and markdown envelopes.                                                                                                   |
-| `errors.ts`                                                               | `CliError` — the "print cleanly, exit 1, no stack trace" class.                                                                            |
+| File                                                                      | Responsibility                                                                                                                              |
+| ------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| `execute.ts`                                                              | Dispatch: `executeCommand()`, `executeDryRun()`, `isAgenticCommand()`, `isOfflineCommand()`.                                                |
+| `prompts.ts`                                                              | Every system-prompt builder, `appendRules()`, `JSON_ONLY_INSTRUCTION`.                                                                      |
+| `pr.ts`                                                                   | PR context gathering and the `createPrRun()` generate/refine/approve cycle.                                                                 |
+| `prompt.ts`                                                               | Agent task prompts: `createPromptRun()`, kind inference, description resolution.                                                            |
+| `commit.ts`                                                               | `GITMOJI_BY_TYPE`, commit context, message assembly.                                                                                        |
+| `branch.ts`                                                               | Branch-name suggestions with a deterministic fallback.                                                                                      |
+| `branch-actions.ts`                                                       | Branch create/rename (`checkout -b`, `branch -m`) plus session re-keying. Called from the UI, never from `executeCommand`.                  |
+| `context.ts`, `docs.ts`, `agents.ts`                                      | Agentic commands. Each builds a prompt and calls `runAgent()`; the CLI writes `--out`, not the model.                                       |
+| `agent-setup.ts`                                                          | Two-pass agentic flow: `planAgentSetup()` (read-only) then `writeAgentSetup()` (path-whitelisted).                                          |
+| `handoff.ts`                                                              | `HANDOFF.md` generate/save cycle.                                                                                                           |
+| `plan.ts`                                                                 | Spec plan I/O: `loadPlanContext()`, `readPlan()` snapshot, `createStageRun()`, offline `approveStage()`/`syncPlan()`, dry run, print path.  |
+| `plan-docs.ts`                                                            | Spec plan pure core: framing, hashing and staleness, `REQ`/`AC`/`T` parsers, coverage, progress, handoff zones, `LOOP_PROMPT.md`.           |
+| `session-draft.ts`                                                        | AI-drafted session context: `createSessionDraftRun()` (direction → explore → JSON draft → feedback rounds), `toSessionContext()`.           |
+| `recover.ts`                                                              | Recovery mode: `openRecoveryWorkspace()` (fetch, resolve, checkout/worktree), dry run, print path (`--save`). The draft is session-draft's. |
+| `recover-evidence.ts`                                                     | What a failed pipeline left, without a model: read-first candidates (ticket paths, changed reports) and the `--from` diagnosis, redacted.   |
+| `repo-brief.ts`                                                           | Bounded repository orientation (tracked files, scripts, root rule docs) for single-shot spec stages.                                        |
+| `template.ts`                                                             | `list`/`show`/`add`/`edit`/`path`. The only command needing neither model nor credentials.                                                  |
+| `rules.ts`                                                                | Two-tier free-text rules appended to every system prompt.                                                                                   |
+| `pr-export.ts`, `prompt-export.ts`, `docs-export.ts`, `handoff-export.ts` | Export filenames and markdown envelopes.                                                                                                    |
+| `errors.ts`                                                               | `CliError` — the "print cleanly, exit 1, no stack trace" class.                                                                             |
 
 ### `src/git/` — plumbing
 
-| File        | Responsibility                                                                                                            |
-| ----------- | ------------------------------------------------------------------------------------------------------------------------- |
-| `run.ts`    | `runGit()` (tolerant), `tryGit()` (null on failure), `runGitStrict()` (throws). Every git subprocess passes through here. |
-| `repo.ts`   | Repo detection, current branch, base-ref resolution, branch create/rename, repo root.                                     |
-| `diff.ts`   | `DiffInfo`, staged/worktree/merge-base diffs, `parseNumStat`, `capText`.                                                  |
-| `ticket.ts` | Ticket extraction, slugs, branch-ref sanitising, `BRANCH_TYPES`.                                                          |
+| File         | Responsibility                                                                                                                                   |
+| ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `run.ts`     | `runGit()` (tolerant), `tryGit()` (null on failure), `runGitStrict()` (throws). Every git subprocess passes through here.                        |
+| `repo.ts`    | Repo detection, current branch, base-ref resolution, branch create/rename, repo root.                                                            |
+| `diff.ts`    | `DiffInfo`, staged/worktree/merge-base diffs, `parseNumStat`, `capText`.                                                                         |
+| `ticket.ts`  | Ticket extraction, slugs, branch-ref sanitising, `BRANCH_TYPES`.                                                                                 |
+| `recover.ts` | Recovery target matching (exact name, else ticket token), fetch, in-place checkout (refused when dirty) or `.worktrees/` worktree, fast-forward. |
 
 ### `src/llm/`
 
@@ -255,6 +258,7 @@ routes to a domain function, and that function calls its runner:
 | `plan` req./design   | `runExplore`    | `src/domain/plan.ts`                                                                 |
 | `plan` tasks/handoff | `runSingleShot` | `src/domain/plan.ts` (via `runExplore`/direct)                                       |
 | session draft        | `runExplore`    | `src/domain/session-draft.ts` (feedback rounds and the JSON repair: `runSingleShot`) |
+| `recover`            | `runExplore`    | `src/domain/recover.ts` → the session draft in recovery mode                         |
 | `context`            | `runAgent`      | `src/domain/context.ts`                                                              |
 | `docs`               | `runAgent`      | `src/domain/docs.ts`                                                                 |
 | `agents`             | `runAgent`      | `src/domain/agents.ts`                                                               |

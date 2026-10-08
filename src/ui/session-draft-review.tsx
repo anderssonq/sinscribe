@@ -9,6 +9,10 @@ import {
   type SessionDraftRequest,
   type SessionDraftRun,
 } from "../domain/session-draft.js";
+import {
+  RECOVERY_DIRECTION,
+  type RecoveryInput,
+} from "../domain/recover-evidence.js";
 import type { SessionContext } from "../session/store.js";
 import { MultilinePrompt, ScrollView, SelectList } from "./menu-view.js";
 import { HeadPanel } from "./panel.js";
@@ -16,7 +20,9 @@ import { useReviewLogRows, useReviewPreviewRows } from "./review-shared.js";
 import { appendEvent, RunLog, type LogItem } from "./run-view.js";
 import { getErrorMessage, isDebugMode } from "./shared.js";
 import { Spinner } from "./spinner.js";
+import { wrapLines } from "./text-buffer.js";
 import { theme } from "./theme.js";
+import { useViewport } from "./viewport.js";
 
 export type SessionDraftOutcome =
   | { status: "approved"; context: SessionContext }
@@ -49,6 +55,8 @@ type Phase =
  * borders, two scroll indicators, seven items and a footer).
  */
 const REVIEW_EXTRA_ROWS = 18;
+/** The review list at its smallest: title, borders, indicators, three items. */
+const REVIEW_MIN_LIST_ROWS = 8;
 
 /** Lines summarising the evidence, shown before the author writes the direction. */
 export function describeSessionEvidence(meta: SessionDraftMeta): string[] {
@@ -58,6 +66,11 @@ export function describeSessionEvidence(meta: SessionDraftMeta): string[] {
   return [
     `Branch ${meta.branch} → ${meta.baseRef ?? "(target not detected)"}${meta.ticket ? ` · ticket ${meta.ticket}` : ""}`,
     `${plural(meta.commits, "commit")} · ${plural(meta.changedFiles, "changed file")} · ${plural(meta.docs, "markdown doc")}${meta.handoff ? " · HANDOFF.md" : ""}`,
+    ...(meta.recovery == null
+      ? []
+      : [
+          `Recovery: ${plural(meta.recovery.candidates, "file")} the pipeline left to read first · ${meta.recovery.diagnosis === null ? "no diagnosis file (--from)" : `diagnosis from ${meta.recovery.diagnosis}`}`,
+        ]),
     meta.exploreKind === "none"
       ? "This provider cannot open files: the AI gets git, the repo brief and matching docs instead."
       : "The AI can read the code and docs read-only — it never changes a file.",
@@ -127,6 +140,8 @@ type SessionDraftFlowProps = {
   previous: SessionContext | null;
   isActive: boolean;
   onDone: (outcome: SessionDraftOutcome) => void;
+  /** Recovery mode: the branch was left by a pipeline that failed. */
+  recovery?: RecoveryInput | null;
 };
 
 /**
@@ -140,8 +155,10 @@ export function SessionDraftFlow({
   previous,
   isActive,
   onDone,
+  recovery = null,
 }: SessionDraftFlowProps) {
   const previewRows = useReviewPreviewRows(REVIEW_EXTRA_ROWS);
+  const { contentColumns, contentRows } = useViewport();
   // The exploration log grows one line per file read: window it, or a long
   // run makes the frame terminal-tall and Ink's full redraws freeze the CLI.
   const logRows = useReviewLogRows(4);
@@ -169,6 +186,7 @@ export function SessionDraftFlow({
     try {
       runRef.current = await createSessionDraftRun(flags, process.cwd(), {
         previous,
+        recovery,
       });
 
       if (!cancelledRef.current) {
@@ -272,18 +290,34 @@ export function SessionDraftFlow({
   }
 
   if (phase.phase === "direction") {
+    const label =
+      recovery === null
+        ? "Direction — what is this session for, and what should it achieve?"
+        : "Recovery goal — submit as is, or add what you already know about the failure";
+    // The evidence summary is context, the prompt is the task: on a short
+    // terminal the summary gives way (the prompt's label, borders, scroll
+    // indicator and two text rows come first) instead of overflowing.
+    const evidenceRows = Math.max(
+      0,
+      contentRows - wrapLines(label, contentColumns).length - 3 - 2,
+    );
+    const evidence = describeSessionEvidence(phase.meta).slice(0, evidenceRows);
+
     return (
       <Box flexDirection="column">
-        {describeSessionEvidence(phase.meta).map((line) => (
+        {evidence.map((line) => (
           <Text color={theme.dim} key={line} wrap="truncate-end">
             {line}
           </Text>
         ))}
         <MultilinePrompt
-          initialValue={previous?.feature ?? ""}
+          initialValue={
+            recovery === null ? (previous?.feature ?? "") : RECOVERY_DIRECTION
+          }
           isActive={isActive}
           key="direction"
-          label="Direction — what is this session for, and what should it achieve?"
+          reservedRows={evidence.length}
+          label={label}
           onCancel={() => {
             finish({ status: "cancelled" });
           }}
@@ -346,25 +380,41 @@ export function SessionDraftFlow({
 
   if (phase.phase === "review") {
     const { draft } = phase;
+    // Without room for the preview, the lines above the list are extras: a
+    // short terminal keeps the list at its minimum (title, borders, scroll
+    // indicators, three items) and shows only the extras that still fit.
+    const extras =
+      previewRows !== null
+        ? 3
+        : Math.max(0, Math.min(3, contentRows - REVIEW_MIN_LIST_ROWS));
 
     return (
       <Box flexDirection="column">
-        <Text color={theme.accent}>Proposed session context</Text>
-        <Text color={theme.dim} wrap="truncate-end">
-          {describeDraftMode(draft)}
-        </Text>
+        {extras >= 1 ? (
+          <Text color={theme.accent}>Proposed session context</Text>
+        ) : null}
+        {extras >= 2 ? (
+          <Text color={theme.dim} wrap="truncate-end">
+            {describeDraftMode(draft)}
+          </Text>
+        ) : null}
         {previewRows !== null ? (
           <HeadPanel
             hiddenHint=" — pick “View full” to read it all"
             maxRows={previewRows}
             text={formatSessionDraft(draft)}
           />
-        ) : (
-          <Text dimColor>Draft ready — pick “View full” to read it.</Text>
-        )}
+        ) : extras >= 3 ? (
+          <Text dimColor wrap="truncate-end">
+            Draft ready — pick “View full” to read it.
+          </Text>
+        ) : null}
         <SelectList
           isActive={isActive}
           key="review"
+          // The heading, the mode line and the "Draft ready" note; with a
+          // preview, REVIEW_EXTRA_ROWS already left the list its rows.
+          reservedRows={previewRows === null ? extras : 0}
           items={[
             {
               id: "approve",

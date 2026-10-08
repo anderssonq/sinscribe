@@ -136,6 +136,62 @@ describe("parseCommand", () => {
     expect(getHelpText()).toContain("sinscribe plan [options]");
   });
 
+  it("parses recover with defaults: the current branch, fetched", () => {
+    expect(parseCommand(["recover"])).toMatchObject({
+      kind: "run",
+      command: {
+        name: "recover",
+        target: null,
+        worktree: false,
+        fetch: true,
+        from: null,
+        save: false,
+      },
+    });
+  });
+
+  it("parses recover with a target and every option", () => {
+    expect(
+      parseCommand([
+        "recover",
+        "ABC-123",
+        "--worktree",
+        "--no-fetch",
+        "--from",
+        "failure.md",
+        "--save",
+        "-p",
+      ]),
+    ).toMatchObject({
+      kind: "run",
+      command: {
+        name: "recover",
+        target: "ABC-123",
+        worktree: true,
+        fetch: false,
+        from: "failure.md",
+        save: true,
+      },
+      flags: { print: true },
+    });
+  });
+
+  it.each([
+    [["recover", "--worktree"], /--worktree needs the branch/u],
+    [["recover", "--from"], /--from requires a file path/u],
+    [["recover", "a", "b"], /Unexpected argument: b/u],
+    [["recover", "--force"], /Unknown option for recover: --force/u],
+  ])("rejects recover %j", (args, message) => {
+    const command = parseCommand(args);
+
+    expect(command.kind).toBe("error");
+    expect(command.kind === "error" ? command.message : "").toMatch(message);
+  });
+
+  it("mentions recover in the help text", () => {
+    expect(getHelpText()).toContain("sinscribe recover [ticket|branch]");
+  });
+
   it("parses plan with defaults", () => {
     expect(parseCommand(["plan"])).toMatchObject({
       kind: "run",

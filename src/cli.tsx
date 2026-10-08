@@ -1,8 +1,15 @@
 #!/usr/bin/env node
 import "./ui/no-color.js";
+import path from "node:path";
 import type { ReactElement } from "react";
 import { render } from "ink";
-import { getHelpText, parseCommand, type CliCommand } from "./commands.js";
+import {
+  getHelpText,
+  parseCommand,
+  type CliCommand,
+  type CommandSpec,
+  type GlobalFlags,
+} from "./commands.js";
 import { SINSCRIBE_VERSION } from "./constants.js";
 import { needsCredentialSetup } from "./credentials.js";
 import { CliError } from "./domain/errors.js";
@@ -11,6 +18,14 @@ import {
   executeDryRun,
   isOfflineCommand,
 } from "./domain/execute.js";
+import {
+  describeRecoveryWorkspace,
+  openRecoveryWorkspace,
+} from "./domain/recover.js";
+import {
+  readDiagnosis,
+  type RecoveryInput,
+} from "./domain/recover-evidence.js";
 import { loadSinscribeEnv } from "./env.js";
 import { NotAGitRepositoryError } from "./git/repo.js";
 import type { RunEvent } from "./llm/events.js";
@@ -154,6 +169,108 @@ async function renderInteractive(
   }
 }
 
+/**
+ * The menu ⇄ chat loop: /exit in a menu-launched chat returns here and
+ * re-renders the menu; quitting the menu, Ctrl+C, or a fatal error leaves
+ * the loop. With `initialRecovery` the first menu opens on the recovery
+ * draft; later rounds start from the action list.
+ */
+async function runMenuLoop(
+  flags: GlobalFlags,
+  initialRecovery: RecoveryInput | null,
+): Promise<void> {
+  let recovery = initialRecovery;
+
+  for (;;) {
+    // Alt-screen clips content taller than the viewport, and generated text
+    // would vanish with the alt buffer on exit — so the menu reports results
+    // and the last one is re-printed on the normal screen.
+    const lastResult: { current: string | null } = { current: null };
+    let launchChat = false;
+
+    await renderInteractive(
+      <MenuApp
+        flags={flags}
+        initialRecovery={recovery}
+        onLaunchChat={() => {
+          launchChat = true;
+        }}
+        onResult={(text) => {
+          lastResult.current = text;
+        }}
+      />,
+      { altScreen: true },
+    );
+    recovery = null;
+
+    if (lastResult.current !== null) {
+      process.stdout.write(`--- last result ---\n${lastResult.current}\n`);
+    }
+
+    if (!launchChat) {
+      return;
+    }
+
+    // The menu and chat use different Ink render modes (alt-screen vs. not),
+    // so chat launches as its own renderInteractive call after the menu's has
+    // fully exited, rather than being nested inside it.
+    let exitToMenu = false;
+
+    await renderInteractive(
+      <ChatApp
+        flags={flags}
+        initialMessage={null}
+        onExitToMenu={() => {
+          exitToMenu = true;
+        }}
+      />,
+    );
+
+    if (!exitToMenu) {
+      return;
+    }
+  }
+}
+
+/**
+ * `sinscribe recover`: open the branch before any UI (git output and its
+ * notes land on the normal screen), move into it, then hand over to the
+ * menu already on the recovery draft.
+ */
+async function runRecoverInteractive(
+  spec: Extract<CommandSpec, { name: "recover" }>,
+  flags: GlobalFlags,
+): Promise<void> {
+  const cwd = process.cwd();
+  const diagnosisPath =
+    spec.from === null ? null : path.resolve(cwd, spec.from);
+
+  // Read before touching git: a typo in the path must not cost a checkout.
+  if (diagnosisPath !== null) {
+    await readDiagnosis(diagnosisPath);
+  }
+
+  if (spec.target !== null) {
+    process.stdout.write(`Opening ${spec.target}...\n`);
+  }
+
+  const workspace = await openRecoveryWorkspace(spec, cwd);
+
+  for (const line of describeRecoveryWorkspace(workspace)) {
+    process.stdout.write(`${line}\n`);
+  }
+
+  // Every flow in the menu reads the repository from process.cwd().
+  process.chdir(workspace.workdir);
+  await runMenuLoop(flags, { diagnosisPath });
+
+  if (workspace.mode === "worktree") {
+    process.stdout.write(
+      `\n${workspace.branch} is open in its worktree: cd ${workspace.workdir}\n`,
+    );
+  }
+}
+
 async function main(): Promise<void> {
   installProcessGuards();
 
@@ -225,59 +342,16 @@ async function main(): Promise<void> {
     return;
   }
 
+  if (command.command.name === "recover") {
+    await runRecoverInteractive(command.command, command.flags);
+    return;
+  }
+
   if (command.command.name === "chat") {
     // Bare invocation: menu-driven dashboard. With a message: chat session.
     if (command.command.message === null) {
-      // Menu ⇄ chat loop: /exit in a menu-launched chat returns here and
-      // re-renders the menu; quitting the menu, Ctrl+C, or a fatal error
-      // leaves the loop and ends the process.
-      for (;;) {
-        // Alt-screen clips content taller than the viewport, and generated
-        // text would vanish with the alt buffer on exit — so the menu reports
-        // results and the last one is re-printed on the normal screen.
-        const lastResult: { current: string | null } = { current: null };
-        let launchChat = false;
-
-        await renderInteractive(
-          <MenuApp
-            flags={command.flags}
-            onLaunchChat={() => {
-              launchChat = true;
-            }}
-            onResult={(text) => {
-              lastResult.current = text;
-            }}
-          />,
-          { altScreen: true },
-        );
-
-        if (lastResult.current !== null) {
-          process.stdout.write(`--- last result ---\n${lastResult.current}\n`);
-        }
-
-        if (!launchChat) {
-          return;
-        }
-
-        // The menu and chat use different Ink render modes (alt-screen vs.
-        // not), so chat launches as its own renderInteractive call after the
-        // menu's has fully exited, rather than being nested inside it.
-        let exitToMenu = false;
-
-        await renderInteractive(
-          <ChatApp
-            flags={command.flags}
-            initialMessage={null}
-            onExitToMenu={() => {
-              exitToMenu = true;
-            }}
-          />,
-        );
-
-        if (!exitToMenu) {
-          return;
-        }
-      }
+      await runMenuLoop(command.flags, null);
+      return;
     }
 
     await renderInteractive(

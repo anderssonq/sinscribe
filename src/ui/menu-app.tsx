@@ -79,6 +79,7 @@ import { PrReviewFlow } from "./pr-review.js";
 import { PlanFlow } from "./plan-flow.js";
 import { PromptReviewFlow } from "./prompt-review.js";
 import { SessionDraftFlow } from "./session-draft-review.js";
+import type { RecoveryInput } from "../domain/recover-evidence.js";
 import {
   appendEvent,
   Header,
@@ -145,7 +146,7 @@ type SessionDraft = {
 };
 
 /** Where the flow continues once a session context is saved. */
-type SessionNext = "menu" | "pr" | "branch" | "prompt" | "plan";
+type SessionNext = "menu" | "pr" | "branch" | "prompt" | "plan" | "recover";
 
 type SettingsDraft = {
   provider: SinscribeProvider;
@@ -171,6 +172,10 @@ type MenuView =
   /** AI-drafted or manual? Asked wherever a context is missing. */
   | { view: "session-choice"; next: SessionNext }
   | { view: "session-ai"; next: SessionNext }
+  /** Recovery: the AI drafts the context from what a failed pipeline left. */
+  | { view: "recover-ai"; recovery: RecoveryInput }
+  /** Recovery context saved: quick bugfix prompt or the spec plan? */
+  | { view: "recover-route" }
   | { view: "clear-confirm" }
   | { view: "rules-tier-pick" }
   | { view: "rules-edit"; tier: "user"; initialValue: string }
@@ -263,6 +268,12 @@ const EMPTY_PROMPT_SPEC: Extract<CommandSpec, { name: "prompt" }> = {
   handoff: false,
 };
 
+/** A recovered branch is a fix: the prompt flow skips its type question. */
+const RECOVERY_PROMPT_SPEC: Extract<CommandSpec, { name: "prompt" }> = {
+  ...EMPTY_PROMPT_SPEC,
+  type: "bugfix",
+};
+
 const EMPTY_STATS: HeaderStats = { worktree: null, range: null };
 
 /** How often the menu re-reads the git change stats while it sits on screen. */
@@ -273,8 +284,14 @@ export function MenuApp({
   flags,
   onResult,
   onLaunchChat,
+  initialRecovery = null,
 }: {
   flags: GlobalFlags;
+  /**
+   * Set by `sinscribe recover`: the branch is already open, so the menu
+   * starts straight in the recovery draft instead of the action list.
+   */
+  initialRecovery?: RecoveryInput | null;
   /**
    * Reports each successful result so the CLI can re-print the last one on
    * the normal screen buffer after the alt-screen menu exits.
@@ -288,7 +305,11 @@ export function MenuApp({
   onLaunchChat?: () => void;
 }) {
   const app = useApp();
-  const [mode, setMode] = useState<MenuView>({ view: "menu" });
+  const [mode, setMode] = useState<MenuView>(
+    initialRecovery === null
+      ? { view: "menu" }
+      : { view: "recover-ai", recovery: initialRecovery },
+  );
   const [log, setLog] = useState<LogItem[]>([]);
   const [setupDone, setSetupDone] = useState(
     !needsCredentialSetup(flags.provider, flags.apiKey),
@@ -398,7 +419,13 @@ export function MenuApp({
             snapshot.branch !== null &&
             snapshot.session?.context == null
           ) {
-            setMode({ view: "session-choice", next: "menu" });
+            // Only from the action list: a flow the CLI opened directly
+            // (recovery) already builds the context itself.
+            setMode((current) =>
+              current.view === "menu"
+                ? { view: "session-choice", next: "menu" }
+                : current,
+            );
           }
         })
         .catch((error: unknown) => {
@@ -701,27 +728,35 @@ export function MenuApp({
     draft: SessionDraft,
     next: SessionNext,
   ): Promise<void> {
-    if (repoRoot === null || branch === null) {
+    // A flow the CLI opened directly (recovery) can finish before the first
+    // repository read lands: read it now rather than drop the approved draft.
+    const current =
+      repoRoot !== null && branch !== null
+        ? { root: repoRoot, branch, session }
+        : await refreshSession();
+
+    if (current.root === null || current.branch === null) {
+      showError("Create session context", "Not inside a git repository.");
       return;
     }
 
     const now = new Date().toISOString();
     const updated: BranchSession = {
       version: 1,
-      branch,
+      branch: current.branch,
       context: {
         feature: draft.feature,
         ticket: draft.ticket,
         requirements: draft.requirements,
         baseRef: draft.baseRef,
       },
-      pr: session?.pr ?? null,
-      createdAt: session?.createdAt ?? now,
+      pr: current.session?.pr ?? null,
+      createdAt: current.session?.createdAt ?? now,
       updatedAt: now,
     };
 
     try {
-      await saveSession(repoRoot, updated);
+      await saveSession(current.root, updated);
     } catch (error) {
       showError("Create session context", getErrorMessage(error));
       return;
@@ -730,7 +765,7 @@ export function MenuApp({
     setSession(updated);
 
     if (next === "menu") {
-      const result = `Session context saved for ${branch}\n(${getSessionPath(repoRoot, branch)})`;
+      const result = `Session context saved for ${current.branch}\n(${getSessionPath(current.root, current.branch)})`;
 
       onResult?.(result);
       setMode({
@@ -749,6 +784,8 @@ export function MenuApp({
       });
     } else if (next === "plan") {
       setMode({ view: "plan-flow", label: "Spec plan (SDD)" });
+    } else if (next === "recover") {
+      setMode({ view: "recover-route" });
     } else {
       startBranchInput(updated);
     }
@@ -843,6 +880,13 @@ export function MenuApp({
         }
 
         setMode({ view: "plan-flow", label: "Spec plan (SDD)" });
+        return;
+      case "recover":
+        // The current branch: `sinscribe recover <ticket>` is what opens
+        // another one (fetch, checkout or worktree) before the menu starts.
+        if (ensureBranch("Recover a failed branch")) {
+          setMode({ view: "recover-ai", recovery: { diagnosisPath: null } });
+        }
         return;
       case "branch":
         if (!requireContext("Create branch name", "branch")) {
@@ -1089,6 +1133,8 @@ export function MenuApp({
         mode.view === "clear-confirm" ||
         mode.view === "session-choice" ||
         mode.view === "session-ai" ||
+        mode.view === "recover-ai" ||
+        mode.view === "recover-route" ||
         mode.view === "rules-tier-pick" ||
         mode.view === "template-pick" ||
         mode.view === "theme-pick" ||
@@ -1117,18 +1163,20 @@ export function MenuApp({
                 ? `${mode.label} — review before approving`
                 : mode.view === "session-ai"
                   ? "Session context with AI — you give the direction, then review"
-                  : mode.view === "plan-flow"
-                    ? "Spec plan (SDD)"
-                    : mode.view === "docs-run"
-                      ? "Generate documentation — agent activity"
-                      : mode.view === "agent-setup-run"
-                        ? "Set up project agents — analyze, answer, generate"
-                        : mode.view === "help"
-                          ? "Help — scroll with ↑/↓ or the wheel, esc to return"
-                          : mode.view === "clear-confirm"
-                            ? "Clear session context — this cannot be undone"
-                            : // Menu view: no subtitle — the header lines carry it.
-                              undefined
+                  : mode.view === "recover-ai" || mode.view === "recover-route"
+                    ? "Recover a failed branch — review, then fix"
+                    : mode.view === "plan-flow"
+                      ? "Spec plan (SDD)"
+                      : mode.view === "docs-run"
+                        ? "Generate documentation — agent activity"
+                        : mode.view === "agent-setup-run"
+                          ? "Set up project agents — analyze, answer, generate"
+                          : mode.view === "help"
+                            ? "Help — scroll with ↑/↓ or the wheel, esc to return"
+                            : mode.view === "clear-confirm"
+                              ? "Clear session context — this cannot be undone"
+                              : // Menu view: no subtitle — the header lines carry it.
+                                undefined
           }
         />
         {mode.view === "menu" ? (
@@ -1279,6 +1327,76 @@ export function MenuApp({
               }
             }}
             previous={session?.context ?? null}
+          />
+        ) : null}
+        {mode.view === "recover-ai" ? (
+          <SessionDraftFlow
+            flags={flags}
+            isActive
+            onDone={(outcome) => {
+              if (outcome.status === "approved") {
+                void saveContextAndContinue(
+                  {
+                    ...outcome.context,
+                    baseRef: outcome.context.baseRef ?? null,
+                  },
+                  "recover",
+                );
+              } else if (outcome.status === "edit") {
+                setMode({
+                  view: "session-input",
+                  step: "feature",
+                  draft: {
+                    ...outcome.context,
+                    baseRef: outcome.context.baseRef ?? detectedBase,
+                  },
+                  next: "recover",
+                });
+              } else {
+                goToMenu();
+              }
+            }}
+            // A fresh look: the pipeline's own context (if any) is evidence
+            // on disk, not a draft to revise.
+            previous={null}
+            recovery={mode.recovery}
+          />
+        ) : null}
+        {mode.view === "recover-route" ? (
+          <SelectList
+            isActive
+            items={[
+              {
+                id: "prompt",
+                label: "Quick fix — bugfix prompt",
+                hint: "one copy-ready prompt for your coding agent, from the saved context",
+              },
+              {
+                id: "plan",
+                label: "Rework — spec plan (SDD)",
+                hint: "requirements → design → tasks, reviewed stage by stage",
+              },
+              {
+                id: "menu",
+                label: "Back to the menu",
+                hint: "the context is saved — pick any action later",
+              },
+            ]}
+            onCancel={goToMenu}
+            onSelect={(id) => {
+              if (id === "prompt") {
+                setMode({
+                  view: "prompt-review",
+                  label: "Recovery — bugfix prompt",
+                  spec: RECOVERY_PROMPT_SPEC,
+                });
+              } else if (id === "plan") {
+                setMode({ view: "plan-flow", label: "Spec plan (SDD)" });
+              } else {
+                goToMenu();
+              }
+            }}
+            title={`Recovery context saved for ${branch ?? "this branch"} — how do you want to fix it?`}
           />
         ) : null}
         {mode.view === "rules-tier-pick" ? (

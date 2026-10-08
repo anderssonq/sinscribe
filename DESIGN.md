@@ -25,6 +25,9 @@ records only the decisions behind them.
 - `context` / `docs` / `agents` / `agent-setup`: execution plan panel (what would be
   scanned/written).
 - `template`: N/A (already offline); `--dry-run` for `add/edit` shows target path.
+- `recover`: the branch it would open (from local refs — no fetch), checkout vs
+  worktree, ticket, base, diagnosis path, and the files the AI would read first
+  (listed from the branch's tree, so accurate before it is opened).
 
 ## 2. Template schema
 
@@ -245,6 +248,36 @@ and most of what it needs is already in the repository. The menu can draft it.
 - **No schema change.** Sources (and open questions, when saved unanswered)
   ride at the end of `requirements`, so `pr`, `prompt`, `branch` and `plan`
   read the drafted context exactly like a typed one.
+
+## 5d. Recovery mode (`sinscribe recover`, 2026-10-08)
+
+Teams that let a CI pipeline of AI agents build a branch end up with branches
+the pipeline gave up on: fix attempts exhausted, tests red, a draft PR and a
+diagnosis somewhere. `recover` is the developer's way back in.
+
+- **Generic on purpose.** Nothing knows which pipeline, tracker or CI produced
+  the branch: the input is a branch name or ticket, the evidence is what the
+  branch carries, and the diagnosis is a file (`--from`). No tracker API, no
+  credentials beyond the model's. Team specifics — protected test or lock
+  paths, the test command — go in project rules, which every step follows.
+- **A session draft in recovery mode, not a new flow.** Recovery reuses §5c
+  wholesale: tier 3 read-only exploration, the review, the deterministic
+  guards. It adds a pre-filled goal, read-first candidates computed without a
+  model (ticket paths, then the reports and docs the branch changed), the
+  diagnosis, and rules that shape the draft into a takeover brief
+  (`Failure:` / `Remaining:` lines). The output is an ordinary session
+  context, so the existing bugfix prompt and spec plan take it from there.
+- **Never weaken the tests.** Pipelines hold agents to tests (often
+  hash-locked). The recovery rules forbid proposing to edit, skip or delete
+  them; a test that looks wrong becomes an open question for the developer.
+- **Git is conservative.** An in-place checkout is refused over uncommitted
+  tracked changes (`--worktree` is the alternative); an existing worktree for
+  the branch is reused; only a strict fast-forward is applied; `.worktrees/` is
+  excluded through `.git/info/exclude`, never the team's `.gitignore`. Pushing
+  stays manual — it is what re-triggers the pipeline.
+- **Print mode saves only on request.** Interactive runs save after approval;
+  `-p` prints the draft and saves it only with `--save`, mirroring
+  `prompt --handoff`.
 
 ## 6. Open decisions (defaults chosen, flag if you disagree)
 

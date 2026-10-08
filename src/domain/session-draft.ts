@@ -23,6 +23,11 @@ import {
   JSON_ONLY_INSTRUCTION,
 } from "./prompts.js";
 import {
+  gatherRecoveryEvidence,
+  type RecoveryEvidence,
+  type RecoveryInput,
+} from "./recover-evidence.js";
+import {
   buildRepoBrief,
   isSecretPath,
   listTrackedFiles,
@@ -67,6 +72,12 @@ export type SessionDraftMeta = {
   /** Tracked markdown documents the model may draw on. */
   docs: number;
   exploreKind: ExploreKind;
+  /** Recovery mode only: what the failed pipeline left to read first. */
+  recovery: {
+    candidates: number;
+    /** Where the diagnosis came from, or null when none was given. */
+    diagnosis: string | null;
+  } | null;
 };
 
 export type SessionDraftRequest = {
@@ -110,7 +121,14 @@ const MISSING_DIRECTION_MESSAGE =
 export async function createSessionDraftRun(
   flags: GlobalFlags,
   cwd: string,
-  options: { previous: SessionContext | null },
+  options: {
+    previous: SessionContext | null;
+    /**
+     * Recovery mode: the branch was left by a pipeline that failed. The
+     * draft hunts for the failure and what is left, not for a new goal.
+     */
+    recovery?: RecoveryInput | null;
+  },
 ): Promise<SessionDraftRun> {
   let direction = "";
   const context = await gatherPromptContext(cwd);
@@ -125,6 +143,14 @@ export async function createSessionDraftRun(
   const tracked = await listTrackedFiles(repoRoot);
   const docs = tracked.filter(isMarkdownPath);
   const knownFiles = new Set(tracked);
+  const recovery =
+    options.recovery == null
+      ? null
+      : await gatherRecoveryEvidence(repoRoot, {
+          ticket: context.ticket,
+          baseRef: context.baseRef,
+          diagnosisPath: options.recovery.diagnosisPath,
+        });
   const feedbackLog: string[] = [];
   let previousDraft: SessionDraft | null = null;
 
@@ -151,6 +177,7 @@ export async function createSessionDraftRun(
       {
         update: previousDraft !== null || options.previous !== null,
         feedback: feedback !== null,
+        recovery: recovery !== null,
       },
       context.rulesSummary.combined,
     );
@@ -161,6 +188,7 @@ export async function createSessionDraftRun(
       previousContext: previousDraft === null ? options.previous : null,
       previousDraft,
       feedback,
+      recovery,
     });
     const llm = {
       modelId: flags.modelId,
@@ -186,6 +214,13 @@ export async function createSessionDraftRun(
           fallbackContext: async () =>
             [
               await buildRepoBrief(repoRoot),
+              recovery === null
+                ? ""
+                : await buildRecoveryDigest(
+                    repoRoot,
+                    recovery.candidates,
+                    knownFiles,
+                  ),
               await buildDocsDigest(repoRoot, docs, [
                 direction,
                 feedback ?? "",
@@ -217,6 +252,7 @@ export async function createSessionDraftRun(
         context.branch,
         context.log,
         context.handoff?.body ?? "",
+        recovery?.diagnosis?.text ?? "",
       ].join("\n"),
       knownFiles,
       repoRoot,
@@ -251,6 +287,13 @@ export async function createSessionDraftRun(
       exploreKind: providerExploreKind(
         resolveConfiguredProvider(flags.provider),
       ),
+      recovery:
+        recovery === null
+          ? null
+          : {
+              candidates: recovery.candidates.length,
+              diagnosis: recovery.diagnosis?.source ?? null,
+            },
     },
     generate,
   };
@@ -323,6 +366,7 @@ function buildSessionDraftUserPrompt(input: {
   previousContext: SessionContext | null;
   previousDraft: SessionDraft | null;
   feedback: string | null;
+  recovery: RecoveryEvidence | null;
 }): string {
   const { context } = input;
   const shownDocs = input.docs.slice(0, MAX_DOC_PATHS);
@@ -337,6 +381,7 @@ function buildSessionDraftUserPrompt(input: {
       ? `Ticket detected from the branch: ${context.ticket}`
       : null,
     describeHandoff(context.handoff, context.branch),
+    input.recovery === null ? null : describeRecovery(input.recovery),
     "",
     "Commits already on this branch:",
     context.log || "(none yet)",
@@ -398,6 +443,33 @@ function buildSessionDraftUserPrompt(input: {
       : null,
     "",
     "Write the session context JSON now.",
+  ]
+    .filter((line) => line !== null)
+    .join("\n");
+}
+
+/**
+ * The recovery brief: the pipeline's leftovers named up front, so the
+ * explorer starts from the failure instead of rediscovering the repository.
+ */
+function describeRecovery(recovery: RecoveryEvidence): string {
+  return [
+    "",
+    "RECOVERY MODE: an automated pipeline (AI agents) produced the commits on this branch and could not finish — its fix attempts ran out, tests may be failing, or the work is incomplete. A developer is taking over; the session context must let them do so without re-reading everything.",
+    recovery.diagnosis
+      ? [
+          "",
+          "Failure diagnosis the developer brought (from the ticket or the CI run):",
+          recovery.diagnosis.text,
+        ].join("\n")
+      : "No diagnosis was supplied: infer the failure from the commits, the files below, and the code.",
+    recovery.candidates.length > 0
+      ? [
+          "",
+          "Files on this branch that likely describe the work or the failure — read these first:",
+          ...recovery.candidates.map((file) => `- ${file}`),
+        ].join("\n")
+      : null,
   ]
     .filter((line) => line !== null)
     .join("\n");
@@ -641,6 +713,22 @@ async function buildReadExcerpts(
   }
 
   return redactSecrets(excerpts.join("\n\n")).text;
+}
+
+/**
+ * For a model that cannot open files: excerpts of the recovery candidates,
+ * which are what such a model most needs and would otherwise never see.
+ */
+async function buildRecoveryDigest(
+  repoRoot: string,
+  candidates: string[],
+  knownFiles: Set<string>,
+): Promise<string> {
+  const excerpts = await buildReadExcerpts(repoRoot, candidates, knownFiles);
+
+  return excerpts.length > 0
+    ? `Files the failed pipeline left on this branch (excerpts):\n${excerpts}`
+    : "";
 }
 
 function isMarkdownPath(file: string): boolean {
