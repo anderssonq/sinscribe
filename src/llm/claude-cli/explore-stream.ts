@@ -38,6 +38,8 @@ export class ClaudeExploreParser {
   private buffer = "";
   private readonly names = new Map<string, string>();
   private readonly read = new Set<string>();
+  /** Read calls awaiting their result, by tool_use id. */
+  private readonly pendingReads = new Map<string, string>();
   result: ClaudeStreamResult | null = null;
 
   constructor(private readonly repoRoot: string) {}
@@ -119,6 +121,15 @@ export class ClaudeExploreParser {
 
       this.names.set(block.id, block.name);
 
+      const file =
+        block.name === "Read"
+          ? this.relative(stringArg(block.input, "file_path"))
+          : null;
+
+      if (file) {
+        this.pendingReads.set(block.id, file);
+      }
+
       return [
         {
           type: "tool_start" as const,
@@ -139,12 +150,22 @@ export class ClaudeExploreParser {
         return [];
       }
 
+      const failed = block.is_error === true;
+      const file = this.pendingReads.get(block.tool_use_id);
+
+      this.pendingReads.delete(block.tool_use_id);
+
+      // Only a read that succeeded counts: a denied Read (.env) was never read.
+      if (file && !failed) {
+        this.read.add(file);
+      }
+
       return [
         {
           type: "tool_end" as const,
           id: block.tool_use_id,
           name: this.names.get(block.tool_use_id) ?? "tool",
-          status: block.is_error === true ? ("error" as const) : "finished",
+          status: failed ? ("error" as const) : "finished",
         },
       ];
     });
@@ -163,13 +184,7 @@ export class ClaudeExploreParser {
     };
 
     if (name === "Read") {
-      const file = this.relative(str("file_path"));
-
-      if (file) {
-        this.read.add(file);
-      }
-
-      return `Read ${file ?? "?"}`;
+      return `Read ${this.relative(str("file_path")) ?? "?"}`;
     }
 
     if (name === "Glob") {
@@ -200,6 +215,16 @@ export class ClaudeExploreParser {
 
     return relative.length === 0 ? "." : relative;
   }
+}
+
+function stringArg(input: unknown, key: string): string | null {
+  if (typeof input !== "object" || input === null) {
+    return null;
+  }
+
+  const value = (input as Record<string, unknown>)[key];
+
+  return typeof value === "string" ? value : null;
 }
 
 function blocks(content: unknown): ContentBlock[] {

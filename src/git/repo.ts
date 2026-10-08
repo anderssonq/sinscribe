@@ -136,11 +136,14 @@ export async function getRangeSubjects(
   cwd: string,
   baseRef: string | null,
   maxCount = 200,
+  /** ISO date; only commits after it (used when there is no base to range from). */
+  since: string | null = null,
 ): Promise<CommitSubject[]> {
   const range = baseRef ? [`${baseRef}..HEAD`] : [];
   const output = await tryGit(cwd, [
     "log",
     ...range,
+    ...(since ? [`--since=${since}`] : []),
     `--max-count=${maxCount}`,
     "--format=%h%x09%s",
   ]);

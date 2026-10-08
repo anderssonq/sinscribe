@@ -45,4 +45,20 @@ describe("redactSecrets", () => {
 
     expect(redactSecrets(code, {})).toEqual({ text: code, count: 0 });
   });
+
+  it.each([
+    "token: RefreshTokenResponse",
+    "secretKey = process.env.SESSION_SECRET_KEY",
+    "password: hashPasswordWithBcrypt(input)",
+    "tokens_path: config/production/tokens.yml",
+    "tokenizer = SentencePieceTokenizer",
+  ])("keeps the code reference in %s", (code) => {
+    expect(redactSecrets(code, {})).toEqual({ text: code, count: 0 });
+  });
+
+  it("still redacts an unquoted generated value", () => {
+    const result = redactSecrets("token: 9f2c4e7a1b8d3f6a0c5e2b7d", {});
+
+    expect(result.text).toBe(`token: ${REDACTED}`);
+  });
 });

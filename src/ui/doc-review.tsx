@@ -40,6 +40,8 @@ type Phase =
       message: string;
       origin: "generate" | "approve" | "draft";
       draft: DocDraft | null;
+      /** The feedback a failed generation was given, so Retry keeps it. */
+      feedback: string | null;
     };
 
 const MAX_WARNING_ROWS = 3;
@@ -55,6 +57,8 @@ export type DocReviewFlowProps = {
   isActive: boolean;
   /** Start in review on an existing draft instead of generating. */
   initialDraft?: DocDraft | null;
+  /** Feedback for the first generation (e.g. `--feedback` on the CLI). */
+  initialFeedback?: string | null;
   generate: (
     feedback: string | null,
     callbacks: RunCallbacks,
@@ -63,8 +67,11 @@ export type DocReviewFlowProps = {
   saveDraft?: () => Promise<string[]>;
   approveLabel: string;
   generatingLabel: string;
-  /** Shown on the error screen when set (an exploration can be skipped). */
-  onRetryWithoutExplore?: () => void;
+  /**
+   * Shown on the error screen when set (an exploration can be skipped);
+   * receives the failed generation's feedback so it is not lost.
+   */
+  onRetryWithoutExplore?: (feedback: string | null) => void;
   refinePlaceholder: string;
   onDone: (outcome: DocReviewOutcome) => void;
 };
@@ -74,6 +81,7 @@ export function DocReviewFlow({
   stepper,
   isActive,
   initialDraft = null,
+  initialFeedback = null,
   generate,
   approve,
   saveDraft,
@@ -123,7 +131,11 @@ export function DocReviewFlow({
     }, 0);
   }
 
-  async function runGenerate(feedback: string | null): Promise<void> {
+  /** `from` is the draft under review, kept so a failure can return to it. */
+  async function runGenerate(
+    feedback: string | null,
+    from: DocDraft | null,
+  ): Promise<void> {
     setLog([]);
     setPhase({
       phase: "generating",
@@ -156,7 +168,8 @@ export function DocReviewFlow({
           phase: "error",
           message: getErrorMessage(error),
           origin: "generate",
-          draft: null,
+          draft: from,
+          feedback,
         });
       }
     }
@@ -186,6 +199,7 @@ export function DocReviewFlow({
           message: getErrorMessage(error),
           origin: kind,
           draft,
+          feedback: null,
         });
       }
     }
@@ -193,7 +207,7 @@ export function DocReviewFlow({
 
   useEffect(() => {
     if (initialDraft === null) {
-      void runGenerate(null);
+      void runGenerate(initialFeedback, null);
     }
 
     return () => {
@@ -300,6 +314,7 @@ export function DocReviewFlow({
             } else if (id === "fix") {
               void runGenerate(
                 `Fix every problem the plan validator reported:\n${draft.warnings.join("\n")}`,
+                draft,
               );
             } else if (id === "modify") {
               setPhase({ phase: "refine-input", draft });
@@ -351,14 +366,14 @@ export function DocReviewFlow({
           setPhase({ phase: "review", draft });
         }}
         onSubmit={(feedback) => {
-          void runGenerate(feedback);
+          void runGenerate(feedback, draft);
         }}
         placeholder={refinePlaceholder}
       />
     );
   }
 
-  const { message, origin, draft } = phase;
+  const { message, origin, draft, feedback } = phase;
 
   return (
     <Box flexDirection="column">
@@ -381,7 +396,9 @@ export function DocReviewFlow({
             label: "Retry",
             hint:
               origin === "generate"
-                ? "run the generation again"
+                ? feedback !== null
+                  ? "run it again with the same feedback"
+                  : "run the generation again"
                 : "try writing again",
           },
           ...(origin === "generate" && onRetryWithoutExplore
@@ -411,12 +428,12 @@ export function DocReviewFlow({
         onSelect={(id) => {
           if (id === "retry") {
             if (origin === "generate" || draft === null) {
-              void runGenerate(null);
+              void runGenerate(feedback, draft);
             } else {
               void runWrite(draft, origin);
             }
           } else if (id === "no-explore") {
-            onRetryWithoutExplore?.();
+            onRetryWithoutExplore?.(feedback);
           } else if (id === "back" && draft !== null) {
             setPhase({ phase: "review", draft });
           } else {

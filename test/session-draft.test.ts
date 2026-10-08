@@ -436,6 +436,16 @@ describe("toSessionContext", () => {
     ).toContain("Open questions:\n- Large files?");
   });
 
+  it("does not stack a second References block when the model echoes one", () => {
+    const saved = toSessionContext(draft, { keepOpenQuestions: true });
+    const regenerated = toSessionContext(
+      { ...draft, requirements: saved.requirements },
+      { keepOpenQuestions: true },
+    );
+
+    expect(regenerated.requirements).toBe(saved.requirements);
+  });
+
   it("stays null when there is nothing to record", () => {
     expect(
       toSessionContext(

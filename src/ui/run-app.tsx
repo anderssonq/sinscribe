@@ -170,6 +170,7 @@ export function RunApp({ command, flags, onResult }: RunAppProps) {
 
             app.exit();
           }}
+          feedback={command.feedback}
           startStage={command.stage}
         />
       </AppShell>

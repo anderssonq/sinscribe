@@ -144,7 +144,8 @@ describe("runClaudeExplore", () => {
     expect(events.some((event) => "id" in event && event.id === "t9")).toBe(
       false,
     );
-    expect(result.filesRead).toEqual(["src/a.ts", ".env"]);
+    // The denied Read of .env never reached the file.
+    expect(result.filesRead).toEqual(["src/a.ts"]);
   });
 
   it("reports an exhausted turn budget clearly", async () => {

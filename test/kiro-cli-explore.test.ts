@@ -118,6 +118,30 @@ describe("parseKiroExploreOutput", () => {
     });
   });
 
+  it("keeps answer lines that look like tool output", () => {
+    const transcript = [
+      `Reading file: ${REPO}/README.md, all lines (using tool: read)`,
+      ` ✓ Successfully read 45 bytes from ${REPO}/README.md`,
+      " - Completed in 0.0s",
+      "> ## Design",
+      "",
+      "  - Summary: retries are capped at three",
+      "Purpose: keep uploads resilient",
+      " ✓ backoff starts at 1s",
+      " ▸ Credits: 0.01 • Time: 2s",
+    ].join("\n");
+
+    expect(parseKiroExploreOutput(transcript, REPO).text).toBe(
+      [
+        "## Design",
+        "",
+        "  - Summary: retries are capped at three",
+        "Purpose: keep uploads resilient",
+        " ✓ backoff starts at 1s",
+      ].join("\n"),
+    );
+  });
+
   it("answers without tools when the model read nothing", () => {
     expect(parseKiroExploreOutput("> Just the answer.\n", REPO).text).toBe(
       "Just the answer.",

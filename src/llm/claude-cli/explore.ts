@@ -216,7 +216,7 @@ export async function runClaudeExplore(
   }
 
   if (parser.result?.isError) {
-    if (parser.result.message === "error_max_turns") {
+    if (parser.result.subtype === "error_max_turns") {
       throw new CliError(
         `${input.command} used all ${maxTurns} exploration turns without ` +
           `finishing — retry without exploring.`,

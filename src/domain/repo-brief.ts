@@ -53,10 +53,7 @@ export async function buildRepoBrief(
 ): Promise<string> {
   const maxFiles = options.maxFiles ?? DEFAULT_MAX_FILES;
   const maxDocBytes = options.maxDocBytes ?? DEFAULT_MAX_DOC_BYTES;
-  const listing = await tryGit(repoRoot, ["ls-files"]);
-  const files = (listing ?? "")
-    .split("\n")
-    .filter((file) => file.length > 0 && !isSecretPath(file));
+  const files = await listTrackedFiles(repoRoot);
   const sections: string[] = [];
 
   if (files.length > 0) {
@@ -98,6 +95,24 @@ export async function buildRepoBrief(
   return redactSecrets(sections.join("\n\n")).text;
 }
 
+/**
+ * Tracked files minus secret-bearing paths. `core.quotePath=false` and `-z`
+ * keep non-ASCII names (docs/diseño.md) as real paths instead of git's
+ * C-quoted "docs/dise\\303\\261o.md".
+ */
+export async function listTrackedFiles(repoRoot: string): Promise<string[]> {
+  const listing = await tryGit(repoRoot, [
+    "-c",
+    "core.quotePath=false",
+    "ls-files",
+    "-z",
+  ]);
+
+  return (listing ?? "")
+    .split("\0")
+    .filter((file) => file.length > 0 && !isSecretPath(file));
+}
+
 async function readPackageScripts(repoRoot: string): Promise<string | null> {
   try {
     const raw = await readFile(path.join(repoRoot, "package.json"), "utf8");
@@ -114,7 +129,7 @@ async function readPackageScripts(repoRoot: string): Promise<string | null> {
   }
 }
 
-async function readCapped(
+export async function readCapped(
   filePath: string,
   maxBytes: number,
 ): Promise<string | null> {

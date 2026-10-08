@@ -13,6 +13,8 @@ export type ClaudeStreamResult = {
   isError: boolean;
   /** The answer on success; the failure description otherwise. */
   message: string;
+  /** The result event's subtype ("success", "error_max_turns", …), or null. */
+  subtype: string | null;
 };
 
 export type StreamEvent = {
@@ -141,5 +143,9 @@ export function toResult(event: StreamEvent): ClaudeStreamResult {
       : errors.join("; ") ||
         (typeof event.subtype === "string" ? event.subtype : "");
 
-  return { isError, message };
+  return {
+    isError,
+    message,
+    subtype: typeof event.subtype === "string" ? event.subtype : null,
+  };
 }

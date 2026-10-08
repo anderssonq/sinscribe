@@ -141,7 +141,7 @@ function writeExploreStream(stdin) {
       type: "result",
       subtype: "error_max_turns",
       is_error: true,
-      errors: [],
+      errors: ["Reached maximum number of turns (30)"],
     });
   } else {
     events.push(delta(answer), {
