@@ -142,7 +142,7 @@ The first interactive run asks for your provider API key and stores it in
 | `context`     | `--out <file>`        | Write the brief to a file                                                           |
 |               | `--format <md\|json>` | Output format (default: `md`)                                                       |
 | `docs`        | `--out <file>`        | Write the documentation to a file                                                   |
-| `agents`      | `--target <t>`        | `claude`\|`agents`\|`both` (default: `both`)                                        |
+| `agents`      | `--target <t>`        | `claude`\|`agents`\|`both` (default: `both`; CLAUDE.md imports AGENTS.md)           |
 |               | `--update`            | Surgically refresh existing files                                                   |
 | `agent-setup` | —                     | No options; the interactive flow asks what it needs                                 |
 | `template`    | `add --from <file>`   | Seed a new user template from an existing file                                      |
