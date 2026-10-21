@@ -3,6 +3,7 @@ import { CliError } from "../src/domain/errors.js";
 import {
   backoffDelayMs,
   classifyLlmError,
+  cliFailureDetail,
   InvalidModelJsonError,
   toFriendlyError,
   withRetry,
@@ -235,5 +236,71 @@ describe("toFriendlyError", () => {
       "OPENCODE_API_KEY is required to run sinscribe with OpenCode Go.";
 
     expect(toFriendlyError(new Error(message), context).message).toBe(message);
+  });
+});
+
+const KIRO_THROTTLE =
+  "Error: Internal error (code -32603): Encountered an error in the response stream: The request was throttled by the service (request_id: e3b95f)";
+
+describe("cliFailureDetail", () => {
+  it("picks the last error line after [tool] progress lines", () => {
+    const stderr = [
+      "[tool] Reading listing midas-kiro …",
+      "[tool] status: Completed",
+      "Error: first problem",
+      "[tool] Reading src",
+      KIRO_THROTTLE,
+      "",
+    ].join("\n");
+
+    expect(cliFailureDetail(stderr)).toBe(KIRO_THROTTLE);
+  });
+
+  it("strips ANSI escapes and carriage returns", () => {
+    expect(cliFailureDetail("\u001b[31mError: bad\u001b[0m\r\n")).toBe(
+      "Error: bad",
+    );
+  });
+
+  it("falls back to the tail when no line mentions an error", () => {
+    expect(cliFailureDetail("a".repeat(30) + "\nlast line", 10)).toBe(
+      "\nlast line".slice(-10).trim(),
+    );
+    expect(cliFailureDetail("one\ntwo")).toBe("one\ntwo");
+  });
+
+  it("caps an error line to max characters", () => {
+    expect(cliFailureDetail("Error: " + "x".repeat(50), 12)).toHaveLength(12);
+  });
+
+  it("reports no output for empty or tool-only stderr", () => {
+    expect(cliFailureDetail("")).toBe("(no output)");
+    expect(
+      cliFailureDetail("[tool] Reading a\n[tool] status: Completed\n"),
+    ).toBe("(no output)");
+  });
+});
+
+describe("classifyLlmError throttling", () => {
+  it("treats the Kiro throttle message as a retryable rate-limit", () => {
+    expect(
+      classifyLlmError(
+        new CliError(`kiro-cli chat exited with code 1: ${KIRO_THROTTLE}`),
+      ),
+    ).toMatchObject({ klass: "rate-limit", retryable: true });
+    expect(classifyLlmError(new Error("Too Many Requests"))).toMatchObject({
+      klass: "rate-limit",
+    });
+  });
+});
+
+describe("cliFailureDetail picks the rate-limit cause", () => {
+  it("prefers a rate-limit line over a later generic error line", () => {
+    const detail = cliFailureDetail(
+      "429 rate limited, slow down\nError: request failed",
+    );
+
+    expect(detail).toBe("429 rate limited, slow down");
+    expect(classifyLlmError(new Error(detail)).klass).toBe("rate-limit");
   });
 });

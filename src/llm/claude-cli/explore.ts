@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
 import { CliError } from "../../domain/errors.js";
+import { cliFailureDetail } from "../errors.js";
 import { emitDebug, type RunCallbacks } from "../events.js";
 import {
   createInactivityWatchdog,
@@ -231,7 +232,7 @@ export async function runClaudeExplore(
   if (code !== 0) {
     throw new CliError(
       `${input.command} exited with code ${code ?? "?"}: ` +
-        `${stderr.trim().slice(0, 500) || "(no output)"}`,
+        cliFailureDetail(stderr),
     );
   }
 

@@ -6,6 +6,7 @@ import {
   approveStage,
   createStageRun,
   dryRunPlan,
+  firstSectionOf,
   loadPlanContext,
   type PlanContext,
   readLoopPrompt,
@@ -190,6 +191,51 @@ describe("plan pipeline", () => {
         revise: "fresh",
       }),
     ).toThrow("Approve requirements.md first.");
+  });
+
+  it("drops the narration an exploring CLI writes before the document", async () => {
+    const ctx = await loadPlanContext(repo);
+
+    mocks.runExplore.mockResolvedValueOnce(
+      explored(
+        [
+          "Now I have enough context to write the requirements document. Let me synthesize what I've learned:",
+          ...Array.from(
+            { length: 12 },
+            (_, index) => `- **Finding ${index}**: ${"detail ".repeat(10)}`,
+          ),
+          "",
+          REQUIREMENTS,
+        ].join("\n"),
+        ["src/auth.ts"],
+      ),
+    );
+
+    const draft = await createStageRun(
+      ctx,
+      await readPlan(ctx),
+      "requirements",
+      FLAGS,
+      { explore: true, revise: "fresh" },
+    ).generate(null);
+
+    expect(draft.content).not.toContain("Let me synthesize");
+    expect(draft.content.trimStart().startsWith("## ")).toBe(true);
+  });
+
+  it("reads each stage's opening section off its skeleton", () => {
+    expect(firstSectionOf("## Objective & users       (what…)")).toBe(
+      "Objective & users",
+    );
+    expect(firstSectionOf("## Overview                (the approach)")).toBe(
+      "Overview",
+    );
+    expect(firstSectionOf("## Phase 1: <first slice>\n\n- [ ] T-1")).toBe(
+      "Phase 1",
+    );
+    expect(firstSectionOf("## Current state           (where…)")).toBe(
+      "Current state",
+    );
   });
 
   it("runs requirements → design → tasks → handoff with traceable, linked files", async () => {

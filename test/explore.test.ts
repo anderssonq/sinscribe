@@ -165,6 +165,64 @@ describe("runExplore routing", () => {
     expect(mocks.runSingleShot).not.toHaveBeenCalled();
   });
 
+  it("falls back to single-shot when kiro explore is throttled", async () => {
+    mocks.resolveModel.mockResolvedValue({
+      provider: "kiro-cli",
+      modelId: "auto",
+      model: new ChatKiroCli({ model: "auto", command: "kiro-cli" }),
+    });
+    mocks.runKiroExplore.mockRejectedValue(
+      new CliError(
+        "kiro-cli chat exited with code 1: Error: The request was throttled by the service",
+      ),
+    );
+
+    const events: RunEvent[] = [];
+    const result = await runExplore(
+      "SYS",
+      "USER",
+      options({ onEvent: (event: RunEvent) => events.push(event) }),
+    );
+
+    expect(result.mode).toBe("single-shot");
+    expect(result.fallbackReason).toBe(
+      "the provider rate-limited the exploration",
+    );
+    expect(events).toContainEqual({
+      type: "status",
+      message:
+        "The provider throttled the exploration — drafting from the repository summary instead",
+    });
+  });
+
+  it("falls back to single-shot when claude explore is rate-limited", async () => {
+    mocks.resolveModel.mockResolvedValue({
+      provider: "claude-cli",
+      modelId: "sonnet",
+      model: new ChatClaudeCli({ model: "sonnet", command: "claude" }),
+    });
+    mocks.runClaudeExplore.mockRejectedValue(
+      new CliError("claude failed: rate limit reached"),
+    );
+
+    const result = await runExplore("SYS", "USER", options());
+
+    expect(result.mode).toBe("single-shot");
+    expect(result.fallbackReason).not.toBeNull();
+  });
+
+  it("does not hide non-throttle kiro failures behind a fallback", async () => {
+    mocks.resolveModel.mockResolvedValue({
+      provider: "kiro-cli",
+      modelId: "auto",
+      model: new ChatKiroCli({ model: "auto", command: "kiro-cli" }),
+    });
+    mocks.runKiroExplore.mockRejectedValue(new CliError("boom"));
+
+    await expect(runExplore("SYS", "USER", options())).rejects.toThrow("boom");
+    expect(mocks.runSingleShot).not.toHaveBeenCalled();
+  });
+
   it("api-key providers explore through the read-only agent", async () => {
     mocks.resolveModel.mockResolvedValue({
       provider: "openrouter",

@@ -1,6 +1,7 @@
 import { appendFile, mkdir, readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { sanitizeBranchKey } from "../session/store.js";
+import { escapeRegExp } from "../util/regex.js";
 import { getCurrentBranch, getRepoRoot, isPathIgnored } from "./repo.js";
 import { runGit, runGitStrict, tryGit } from "./run.js";
 import { extractTicketId } from "./ticket.js";
@@ -448,10 +449,6 @@ async function pathExists(target: string): Promise<boolean> {
 
 function samePath(a: string, b: string): boolean {
   return path.resolve(a) === path.resolve(b);
-}
-
-function escapeRegExp(text: string): string {
-  return text.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
 }
 
 function firstLine(error: unknown): string {

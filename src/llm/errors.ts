@@ -100,6 +100,9 @@ function getMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+/** Messages that mean "slow down": the CLIs say "throttled", not "429". */
+const RATE_LIMIT_PATTERN = /rate.?limit|throttl|too many requests/iu;
+
 function firstLine(message: string): string {
   return message.split("\n", 1)[0]?.trim() ?? message;
 }
@@ -153,7 +156,7 @@ export function classifyLlmError(error: unknown): ClassifiedLlmError {
     return classified("missing-config", firstLine(message));
   }
 
-  if (/rate.?limit/iu.test(message)) {
+  if (RATE_LIMIT_PATTERN.test(message)) {
     return classified("rate-limit", firstLine(message));
   }
 
@@ -172,6 +175,32 @@ export function classifyLlmError(error: unknown): ClassifiedLlmError {
   }
 
   return classified("unknown", firstLine(message));
+}
+
+/**
+ * The cause of a failed CLI run from its stderr. The real error is usually
+ * the last line, buried under `[tool]` progress lines, so a plain head-slice
+ * would hide it: prefer the last line naming a rate limit (so the message
+ * still classifies as one), then the last line mentioning an error, else the
+ * tail.
+ */
+export function cliFailureDetail(stderr: string, max = 500): string {
+  const lines = stderr
+    // eslint-disable-next-line no-control-regex
+    .replace(/\u001b\[[0-9;?]*[ -/]*[@-~]/gu, "")
+    .replace(/\r/gu, "")
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0 && !line.startsWith("[tool]"));
+  const causeLine =
+    lines.filter((line) => RATE_LIMIT_PATTERN.test(line)).at(-1) ??
+    lines.filter((line) => /\berror\b/iu.test(line)).at(-1);
+
+  if (causeLine !== undefined) {
+    return causeLine.slice(0, max);
+  }
+
+  return lines.join("\n").slice(-max).trim() || "(no output)";
 }
 
 /**

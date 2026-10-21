@@ -12,6 +12,7 @@ import {
 } from "@langchain/core/messages";
 import { ChatGenerationChunk, type ChatResult } from "@langchain/core/outputs";
 import { CliError } from "../../domain/errors.js";
+import { cliFailureDetail } from "../errors.js";
 import { getContentText } from "../events.js";
 import { ensureKiroAgent, KIRO_AGENT_NAME } from "./agent.js";
 import { KiroOutputCleaner } from "./output.js";
@@ -176,7 +177,7 @@ export class ChatKiroCli extends BaseChatModel<BaseChatModelCallOptions> {
     if (code !== 0) {
       throw new CliError(
         `${this.command} chat exited with code ${code ?? "?"}: ` +
-          `${stderr.trim().slice(0, 500) || "(no output)"}`,
+          cliFailureDetail(stderr),
       );
     }
   }

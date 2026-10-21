@@ -15,6 +15,7 @@ import {
 import { ChatGenerationChunk, type ChatResult } from "@langchain/core/outputs";
 import { SECRET_ENV_KEYS } from "../../constants.js";
 import { CliError } from "../../domain/errors.js";
+import { cliFailureDetail } from "../errors.js";
 import { sinscribeEnvDir } from "../../env.js";
 import { getContentText } from "../events.js";
 import { ClaudeStreamParser } from "./stream.js";
@@ -215,7 +216,7 @@ export class ChatClaudeCli extends BaseChatModel<BaseChatModelCallOptions> {
     if (code !== 0) {
       throw new CliError(
         `${this.command} exited with code ${code ?? "?"}: ` +
-          `${stderr.trim().slice(0, 500) || "(no output)"}`,
+          cliFailureDetail(stderr),
       );
     }
   }

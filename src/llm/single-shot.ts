@@ -14,6 +14,7 @@ import {
   raceAbort,
   SINGLE_SHOT_TOTAL_MS,
 } from "./watchdog.js";
+import { escapeRegExp } from "../util/regex.js";
 
 export type SingleShotOptions = RunCallbacks & {
   modelId?: string | null;
@@ -126,6 +127,48 @@ export function stripMarkdownFence(text: string): string {
   const match = /^```[a-z]*\n([\s\S]*?)\n?```$/u.exec(trimmed);
 
   return match ? match[1] : trimmed;
+}
+
+/** Past this length, text before the first section is content, not chatter. */
+const MAX_PREAMBLE_CHARS = 600;
+
+/**
+ * Drops the narration ("Now I have enough context. Here's the document:")
+ * before a document that must open with a "## " section. Agentic CLIs write
+ * it in the same turn as the answer, so the prompt alone cannot stop it.
+ *
+ * With `firstSection` (the heading the document must open with), everything
+ * before that heading goes, however long — the prompt forbids anything above
+ * it. Without it, or when the model skipped that section, only a short
+ * lead-in before the first "## " or fence is dropped.
+ */
+export function stripPreamble(text: string, firstSection?: string): string {
+  const trimmed = text.trim();
+
+  if (trimmed.startsWith("#") || trimmed.startsWith("```")) {
+    return trimmed;
+  }
+
+  if (firstSection !== undefined) {
+    const heading = new RegExp(
+      // A fence opened right above the heading wraps the document: keep it
+      // so stripMarkdownFence can unwrap the pair.
+      `^(?:\`\`\`[a-z]*\\r?\\n)?## ${escapeRegExp(firstSection)}\\b`,
+      "mu",
+    ).exec(trimmed);
+
+    if (heading !== null) {
+      return trimmed.slice(heading.index);
+    }
+  }
+
+  const start = /^(?:## |```)/mu.exec(trimmed);
+
+  if (start === null || start.index > MAX_PREAMBLE_CHARS) {
+    return trimmed;
+  }
+
+  return trimmed.slice(start.index);
 }
 
 /**
