@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { CliError } from "../src/domain/errors.js";
 import { ChatClaudeCli } from "../src/llm/claude-cli/model.js";
+import { CliRateLimitError } from "../src/llm/errors.js";
 import type { RunEvent } from "../src/llm/events.js";
 
 const mocks = vi.hoisted(() => ({
@@ -162,6 +163,87 @@ describe("runExplore routing", () => {
     await expect(runExplore("SYS", "USER", options())).rejects.toThrow(
       "Not logged in",
     );
+    expect(mocks.runSingleShot).not.toHaveBeenCalled();
+  });
+
+  it("falls back to single-shot when kiro explore is throttled", async () => {
+    mocks.resolveModel.mockResolvedValue({
+      provider: "kiro-cli",
+      modelId: "auto",
+      model: new ChatKiroCli({ model: "auto", command: "kiro-cli" }),
+    });
+    mocks.runKiroExplore.mockRejectedValue(
+      new CliRateLimitError(
+        "kiro-cli chat exited with code 1: Error: The request was throttled by the service",
+      ),
+    );
+
+    const events: RunEvent[] = [];
+    const result = await runExplore(
+      "SYS",
+      "USER",
+      options({ onEvent: (event: RunEvent) => events.push(event) }),
+    );
+
+    expect(result.mode).toBe("single-shot");
+    expect(result.fallbackReason).toBe(
+      "the provider rate-limited the exploration",
+    );
+    expect(events).toContainEqual({
+      type: "status",
+      message:
+        "The provider throttled the exploration — drafting from the repository summary instead",
+    });
+  });
+
+  it("falls back to single-shot when claude explore is rate-limited", async () => {
+    mocks.resolveModel.mockResolvedValue({
+      provider: "claude-cli",
+      modelId: "sonnet",
+      model: new ChatClaudeCli({ model: "sonnet", command: "claude" }),
+    });
+    mocks.runClaudeExplore.mockRejectedValue(
+      new CliRateLimitError("claude failed: rate limit reached"),
+    );
+
+    const result = await runExplore("SYS", "USER", options());
+
+    expect(result.mode).toBe("single-shot");
+    expect(result.fallbackReason).toBe(
+      "the provider rate-limited the exploration",
+    );
+  });
+
+  it("never falls back on a message that only quotes the model's text", async () => {
+    mocks.resolveModel.mockResolvedValue({
+      provider: "kiro-cli",
+      modelId: "auto",
+      model: new ChatKiroCli({ model: "auto", command: "kiro-cli" }),
+    });
+    // describeMissingAnswer's shape: Kiro's last output is the model's
+    // narration, here about the very feature being planned.
+    mocks.runKiroExplore.mockRejectedValue(
+      new CliError(
+        "kiro-cli explored but returned no answer. Its last output: " +
+          "I'll add rate limiting so the uploader is throttled after 5 retries.",
+      ),
+    );
+
+    await expect(runExplore("SYS", "USER", options())).rejects.toThrow(
+      "returned no answer",
+    );
+    expect(mocks.runSingleShot).not.toHaveBeenCalled();
+  });
+
+  it("does not hide non-throttle kiro failures behind a fallback", async () => {
+    mocks.resolveModel.mockResolvedValue({
+      provider: "kiro-cli",
+      modelId: "auto",
+      model: new ChatKiroCli({ model: "auto", command: "kiro-cli" }),
+    });
+    mocks.runKiroExplore.mockRejectedValue(new CliError("boom"));
+
+    await expect(runExplore("SYS", "USER", options())).rejects.toThrow("boom");
     expect(mocks.runSingleShot).not.toHaveBeenCalled();
   });
 

@@ -5,6 +5,7 @@ import {
   ExploreUnsupportedError,
   runClaudeExplore,
 } from "./claude-cli/explore.js";
+import { CliRateLimitError, RATE_LIMITED_REASON } from "./errors.js";
 import { emitDebug } from "./events.js";
 import { runKiroExplore } from "./kiro-cli/explore.js";
 import { ChatKiroCli } from "./kiro-cli/model.js";
@@ -22,6 +23,7 @@ import { runSingleShot, type SingleShotOptions } from "./single-shot.js";
  * - api-key providers: deepagents FilesystemBackend with write-deny permissions
  * - kiro-cli: a per-run agent whose only tool is fs_read, confined to the repo
  * - --no-explore / an old claude CLI: single-shot + repo brief
+ * - a CLI explore the provider throttled: single-shot too
  */
 
 export type ExploreMode =
@@ -114,7 +116,7 @@ export async function runExplore(
         return singleShot(systemPrompt, userPrompt, options, error.message);
       }
 
-      throw error;
+      return fallbackIfThrottled(error, systemPrompt, userPrompt, options);
     }
   }
 
@@ -124,23 +126,27 @@ export async function runExplore(
       message: "Exploring the repository (read-only)…",
     });
 
-    const result = await runKiroExplore({
-      command: resolved.model.command,
-      model: resolved.model.model,
-      systemPrompt: withExploreClause(systemPrompt),
-      userPrompt,
-      repoRoot: options.repoRoot,
-      debug: options.debug,
-      onEvent: options.onEvent,
-    });
+    try {
+      const result = await runKiroExplore({
+        command: resolved.model.command,
+        model: resolved.model.model,
+        systemPrompt: withExploreClause(systemPrompt),
+        userPrompt,
+        repoRoot: options.repoRoot,
+        debug: options.debug,
+        onEvent: options.onEvent,
+      });
 
-    return {
-      text: result.text,
-      modelId: resolved.modelId,
-      mode: "kiro-cli-readonly",
-      filesRead: result.filesRead,
-      fallbackReason: null,
-    };
+      return {
+        text: result.text,
+        modelId: resolved.modelId,
+        mode: "kiro-cli-readonly",
+        filesRead: result.filesRead,
+        fallbackReason: null,
+      };
+    } catch (error) {
+      return fallbackIfThrottled(error, systemPrompt, userPrompt, options);
+    }
   }
 
   if (kind === "agent") {
@@ -171,6 +177,33 @@ export async function runExplore(
     options,
     "this provider cannot explore the repository yet",
   );
+}
+
+/**
+ * A throttled exploration is transient and the document can still be
+ * drafted from the repo brief; anything else (auth, timeouts, turn limits,
+ * a missing answer) rethrows so the user decides. Only the CLI's own rate
+ * limit counts: a message that merely quotes the model's text never does.
+ */
+async function fallbackIfThrottled(
+  error: unknown,
+  systemPrompt: string,
+  userPrompt: string,
+  options: ExploreOptions,
+): Promise<ExploreResult> {
+  if (!(error instanceof CliRateLimitError)) {
+    throw error;
+  }
+
+  emitDebug(options, `explore throttled: ${error.message}`);
+
+  options.onEvent?.({
+    type: "status",
+    message:
+      "The provider throttled the exploration — drafting from the repository summary instead",
+  });
+
+  return singleShot(systemPrompt, userPrompt, options, RATE_LIMITED_REASON);
 }
 
 async function singleShot(

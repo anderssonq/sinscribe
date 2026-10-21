@@ -1,5 +1,6 @@
 import { HumanMessage, SystemMessage } from "@langchain/core/messages";
 import { getProviderAuthKind, getProviderLabel } from "../constants.js";
+import { escapeRegExp } from "../util/regex.js";
 import {
   classifyLlmError,
   InvalidModelJsonError,
@@ -123,9 +124,52 @@ export async function runSingleShot(
  */
 export function stripMarkdownFence(text: string): string {
   const trimmed = text.trim();
-  const match = /^```[a-z]*\n([\s\S]*?)\n?```$/u.exec(trimmed);
+  const match = /^```[\w-]*\r?\n([\s\S]*?)\r?\n?```$/u.exec(trimmed);
 
-  return match ? match[1] : trimmed;
+  return match ? match[1].trim() : trimmed;
+}
+
+/** Past this length, text before the first section is content, not chatter. */
+const MAX_PREAMBLE_CHARS = 600;
+
+/**
+ * Drops the narration ("Now I have enough context. Here's the document:")
+ * before a document that must open with a "## " section. Agentic CLIs write
+ * it in the same turn as the answer, so the prompt alone cannot stop it.
+ *
+ * With `firstSection` (the heading the document must open with), everything
+ * before that heading goes, however long — the prompt forbids anything above
+ * it — unless a "## " section sits above it: then the model reordered the
+ * document, and cutting would drop real sections. Otherwise only a short
+ * lead-in before the first "## " or fence is dropped.
+ */
+export function stripPreamble(text: string, firstSection?: string): string {
+  const trimmed = text.trim();
+
+  if (trimmed.startsWith("#") || trimmed.startsWith("```")) {
+    return trimmed;
+  }
+
+  if (firstSection !== undefined) {
+    const heading = new RegExp(
+      // A fence opened right above the heading wraps the document: keep it
+      // so stripMarkdownFence can unwrap the pair.
+      `^(?:\`\`\`[\\w-]*\\r?\\n\\s*)?## ${escapeRegExp(firstSection)}\\b`,
+      "mu",
+    ).exec(trimmed);
+
+    if (heading !== null && !/^## /mu.test(trimmed.slice(0, heading.index))) {
+      return trimmed.slice(heading.index);
+    }
+  }
+
+  const start = /^(?:## |```)/mu.exec(trimmed);
+
+  if (start === null || start.index > MAX_PREAMBLE_CHARS) {
+    return trimmed;
+  }
+
+  return trimmed.slice(start.index);
 }
 
 /**

@@ -13,8 +13,13 @@ import {
   isPathIgnored,
 } from "../git/repo.js";
 import type { RunCallbacks } from "../llm/events.js";
+import { RATE_LIMITED_REASON } from "../llm/errors.js";
 import { runExplore, type ExploreMode } from "../llm/explore.js";
-import { runSingleShot, stripMarkdownFence } from "../llm/single-shot.js";
+import {
+  runSingleShot,
+  stripMarkdownFence,
+  stripPreamble,
+} from "../llm/single-shot.js";
 import { redactSecrets } from "../util/redact.js";
 import { CliError } from "./errors.js";
 import {
@@ -420,7 +425,9 @@ export function createStageRun(
                 : undefined,
             fallbackContext: () => buildRepoBrief(ctx.repoRoot),
           });
-    const raw = stripMarkdownFence(result.text);
+    const raw = stripMarkdownFence(
+      stripPreamble(result.text, firstSectionOf(STAGE_SKELETONS[stage])),
+    );
 
     if (raw.length === 0) {
       throw new CliError("The model produced no output.");
@@ -547,6 +554,13 @@ function postProcess(
 
   if (count > 0) {
     warnings.push(`redacted ${count} secret-looking value(s)`);
+  }
+
+  // A downgrade the reviewer should see next to approve, not only in the note.
+  if (meta.fallbackReason === RATE_LIMITED_REASON) {
+    warnings.push(
+      "drafted without reading the repository: the provider throttled the exploration; regenerate later to ground it in the code",
+    );
   }
 
   if (stage === "design") {
@@ -1095,6 +1109,15 @@ const STAGE_SKELETONS: Record<PlanStageId, string> = {
   tasks: PLAN_TASKS_SKELETON,
   handoff: PLAN_HANDOFF_SECTIONS,
 };
+
+/**
+ * The heading a stage's document opens with, read off its skeleton's first
+ * line: "## Objective & users   (…)" → "Objective & users", "## Phase 1: <…>"
+ * → "Phase 1".
+ */
+export function firstSectionOf(skeleton: string): string | undefined {
+  return /^## (.+?)(?=\s{2,}|:|\s\(|$)/mu.exec(skeleton)?.[1];
+}
 
 export async function dryRunPlan(
   spec: PlanSpec,

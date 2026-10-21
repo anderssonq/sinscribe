@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
 import { CliError } from "../../domain/errors.js";
+import { cliExitError, cliVerdictError } from "../errors.js";
 import { emitDebug, type RunCallbacks } from "../events.js";
 import {
   createInactivityWatchdog,
@@ -223,15 +224,16 @@ export async function runClaudeExplore(
       );
     }
 
-    throw new CliError(
+    throw cliVerdictError(
       `${input.command} failed: ${parser.result.message || "(no detail)"}`,
+      parser.result.message,
     );
   }
 
   if (code !== 0) {
-    throw new CliError(
-      `${input.command} exited with code ${code ?? "?"}: ` +
-        `${stderr.trim().slice(0, 500) || "(no output)"}`,
+    throw cliExitError(
+      `${input.command} exited with code ${code ?? "?"}`,
+      stderr,
     );
   }
 

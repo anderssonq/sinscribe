@@ -13,6 +13,7 @@ import type { RunCallbacks } from "../llm/events.js";
 import { InvalidModelJsonError } from "../llm/errors.js";
 import { extractJsonObject, runSingleShot } from "../llm/single-shot.js";
 import { loadSession, type SessionContext } from "../session/store.js";
+import { escapeRegExp } from "../util/regex.js";
 import { CliError } from "./errors.js";
 import { createBranchSystemPrompt, JSON_ONLY_INSTRUCTION } from "./prompts.js";
 import { describeRulesForDryRun, loadRules } from "./rules.js";
@@ -38,10 +39,7 @@ function parseBranchInput(spec: BranchSpec): BranchInput {
   const ticket = extractTicketId(spec.input);
   const description = ticket
     ? spec.input
-        .replace(
-          new RegExp(ticket.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&"), "iu"),
-          " ",
-        )
+        .replace(new RegExp(escapeRegExp(ticket), "iu"), " ")
         .replace(/\s+/gu, " ")
         .trim()
     : spec.input.trim();
