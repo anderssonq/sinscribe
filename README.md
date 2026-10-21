@@ -18,6 +18,10 @@ Y8ooooo. 88 88'  `88 Y8ooooo. 88'  `"" 88'  `88 88 88'  `88 88ooood8
 
 </div>
 
+<p align="center">
+  <img src="assets/demo.gif" width="760" alt="sinscribe demo: AI-drafted session context, main menu, PR templates, PR description, commit message, branch names, spec plan and live theme picker" />
+</p>
+
 Sinscribe is a git-centric developer-workflow assistant CLI. It reads your
 actual git state — diffs, branch, ticket, session context — and writes the
 prose around it: PR/MR descriptions, commit messages, branch names,
@@ -30,10 +34,6 @@ one-shot command or an interactive chat agent.
 > commands, flags, env vars, and config layout — is now covered by semver.
 > Install it globally with `npm install -g sinscribe`, or
 > [from source](#install) for development.
-
-<p align="center">
-  <img width="600" height="483" alt="sinscribe (1)" src="https://github.com/user-attachments/assets/f1604f79-ab7d-4623-a237-719384cd47ee" />
-</p>
 
 ## Features
 
