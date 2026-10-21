@@ -3,7 +3,10 @@ import { CliError } from "../src/domain/errors.js";
 import {
   backoffDelayMs,
   classifyLlmError,
+  cliExitError,
   cliFailureDetail,
+  CliRateLimitError,
+  cliVerdictError,
   InvalidModelJsonError,
   toFriendlyError,
   withRetry,
@@ -253,7 +256,27 @@ describe("cliFailureDetail", () => {
       "",
     ].join("\n");
 
-    expect(cliFailureDetail(stderr)).toBe(KIRO_THROTTLE);
+    // The cause first, then the CLI's lines just above it.
+    expect(cliFailureDetail(stderr)).toBe(
+      `${KIRO_THROTTLE}\nError: first problem`,
+    );
+  });
+
+  it("keeps the context above the cause so it still classifies", () => {
+    const detail = cliFailureDetail(
+      "unauthorized: run kiro-cli login\nError: request failed",
+    );
+
+    expect(detail).toBe(
+      "Error: request failed\nunauthorized: run kiro-cli login",
+    );
+    expect(classifyLlmError(new Error(detail)).klass).toBe("auth");
+  });
+
+  it("ignores lines that only mention the word error", () => {
+    expect(cliFailureDetail("finished with no error\nbye")).toBe(
+      "finished with no error\nbye",
+    );
   });
 
   it("strips ANSI escapes and carriage returns", () => {
@@ -264,7 +287,7 @@ describe("cliFailureDetail", () => {
 
   it("falls back to the tail when no line mentions an error", () => {
     expect(cliFailureDetail("a".repeat(30) + "\nlast line", 10)).toBe(
-      "\nlast line".slice(-10).trim(),
+      "last line",
     );
     expect(cliFailureDetail("one\ntwo")).toBe("one\ntwo");
   });
@@ -302,5 +325,34 @@ describe("cliFailureDetail picks the rate-limit cause", () => {
 
     expect(detail).toBe("429 rate limited, slow down");
     expect(classifyLlmError(new Error(detail)).klass).toBe("rate-limit");
+  });
+});
+
+describe("typed CLI rate limits", () => {
+  it("cliExitError types a rate limit only when the CLI's stderr says so", () => {
+    const throttled = cliExitError(
+      "kiro-cli chat exited with code 1",
+      `[tool] Reading a.ts:1\n${KIRO_THROTTLE}\n`,
+    );
+
+    expect(throttled).toBeInstanceOf(CliRateLimitError);
+    expect(throttled.message).toBe(
+      `kiro-cli chat exited with code 1: ${KIRO_THROTTLE}`,
+    );
+    expect(
+      cliExitError("kiro-cli chat exited with code 1", "Error: boom"),
+    ).not.toBeInstanceOf(CliRateLimitError);
+  });
+
+  it("cliVerdictError types claude's own rate-limit verdict", () => {
+    expect(
+      cliVerdictError(
+        "claude failed: API Error: 429",
+        "API Error: 429 rate_limit_error",
+      ),
+    ).toBeInstanceOf(CliRateLimitError);
+    expect(
+      cliVerdictError("claude failed: Not logged in", "Not logged in"),
+    ).not.toBeInstanceOf(CliRateLimitError);
   });
 });

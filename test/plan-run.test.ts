@@ -16,6 +16,7 @@ import {
   syncPlan,
 } from "../src/domain/plan.js";
 import { extractLog, parseIndex } from "../src/domain/plan-docs.js";
+import { RATE_LIMITED_REASON } from "../src/llm/errors.js";
 import { saveSession, deleteSession } from "../src/session/store.js";
 import { git, initRepo, makeTempDir, removeDir } from "./git-fixture.js";
 
@@ -221,6 +222,27 @@ describe("plan pipeline", () => {
 
     expect(draft.content).not.toContain("Let me synthesize");
     expect(draft.content.trimStart().startsWith("## ")).toBe(true);
+  });
+
+  it("flags a draft the throttled provider wrote without reading the code", async () => {
+    const ctx = await loadPlanContext(repo);
+
+    mocks.runExplore.mockResolvedValueOnce({
+      ...explored(REQUIREMENTS),
+      fallbackReason: RATE_LIMITED_REASON,
+    });
+
+    const draft = await createStageRun(
+      ctx,
+      await readPlan(ctx),
+      "requirements",
+      FLAGS,
+      { explore: true, revise: "fresh" },
+    ).generate(null);
+
+    expect(draft.warnings).toContain(
+      "drafted without reading the repository: the provider throttled the exploration; regenerate later to ground it in the code",
+    );
   });
 
   it("reads each stage's opening section off its skeleton", () => {

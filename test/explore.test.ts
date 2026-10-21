@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { CliError } from "../src/domain/errors.js";
 import { ChatClaudeCli } from "../src/llm/claude-cli/model.js";
+import { CliRateLimitError } from "../src/llm/errors.js";
 import type { RunEvent } from "../src/llm/events.js";
 
 const mocks = vi.hoisted(() => ({
@@ -172,7 +173,7 @@ describe("runExplore routing", () => {
       model: new ChatKiroCli({ model: "auto", command: "kiro-cli" }),
     });
     mocks.runKiroExplore.mockRejectedValue(
-      new CliError(
+      new CliRateLimitError(
         "kiro-cli chat exited with code 1: Error: The request was throttled by the service",
       ),
     );
@@ -202,13 +203,36 @@ describe("runExplore routing", () => {
       model: new ChatClaudeCli({ model: "sonnet", command: "claude" }),
     });
     mocks.runClaudeExplore.mockRejectedValue(
-      new CliError("claude failed: rate limit reached"),
+      new CliRateLimitError("claude failed: rate limit reached"),
     );
 
     const result = await runExplore("SYS", "USER", options());
 
     expect(result.mode).toBe("single-shot");
-    expect(result.fallbackReason).not.toBeNull();
+    expect(result.fallbackReason).toBe(
+      "the provider rate-limited the exploration",
+    );
+  });
+
+  it("never falls back on a message that only quotes the model's text", async () => {
+    mocks.resolveModel.mockResolvedValue({
+      provider: "kiro-cli",
+      modelId: "auto",
+      model: new ChatKiroCli({ model: "auto", command: "kiro-cli" }),
+    });
+    // describeMissingAnswer's shape: Kiro's last output is the model's
+    // narration, here about the very feature being planned.
+    mocks.runKiroExplore.mockRejectedValue(
+      new CliError(
+        "kiro-cli explored but returned no answer. Its last output: " +
+          "I'll add rate limiting so the uploader is throttled after 5 retries.",
+      ),
+    );
+
+    await expect(runExplore("SYS", "USER", options())).rejects.toThrow(
+      "returned no answer",
+    );
+    expect(mocks.runSingleShot).not.toHaveBeenCalled();
   });
 
   it("does not hide non-throttle kiro failures behind a fallback", async () => {

@@ -62,8 +62,6 @@ describe("stripPreamble with the document's first section", () => {
         (_, index) => `- **Finding ${index}**: ${"detail ".repeat(10)}`,
       ),
       "",
-      "## Notes to self",
-      "",
     ].join("\n");
 
     expect(
@@ -86,5 +84,38 @@ describe("stripPreamble with the document's first section", () => {
     expect(stripPreamble(`Done reading.\n\n${SECTIONS}`, "Overview")).toBe(
       SECTIONS,
     );
+  });
+});
+
+describe("stripPreamble never drops real sections", () => {
+  it("keeps a reordered document whole instead of cutting at the first section", () => {
+    const reordered =
+      "## Assumptions\n\n- One owner.\n\n## Objective & users\n\nAlerts.";
+
+    expect(stripPreamble(reordered, "Objective & users")).toBe(reordered);
+    expect(
+      stripPreamble(`Done reading.\n\n${reordered}`, "Objective & users"),
+    ).toBe(reordered);
+  });
+
+  it("unwraps a fence with a blank line or a capitalised language tag", () => {
+    const sections = "## Overview\n\nThe approach.";
+
+    expect(
+      stripMarkdownFence(
+        stripPreamble(
+          `Here:\n\`\`\`markdown\n\n${sections}\n\`\`\``,
+          "Overview",
+        ),
+      ),
+    ).toBe(sections);
+    expect(
+      stripMarkdownFence(
+        stripPreamble(
+          `Here:\n\`\`\`Markdown\r\n${sections}\r\n\`\`\``,
+          "Overview",
+        ),
+      ),
+    ).toBe(sections.replace(/\n/gu, "\n"));
   });
 });

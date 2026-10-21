@@ -5,7 +5,7 @@ import {
   ExploreUnsupportedError,
   runClaudeExplore,
 } from "./claude-cli/explore.js";
-import { classifyLlmError } from "./errors.js";
+import { CliRateLimitError, RATE_LIMITED_REASON } from "./errors.js";
 import { emitDebug } from "./events.js";
 import { runKiroExplore } from "./kiro-cli/explore.js";
 import { ChatKiroCli } from "./kiro-cli/model.js";
@@ -180,9 +180,10 @@ export async function runExplore(
 }
 
 /**
- * A throttled exploration is transient and the document can
- * still be drafted from the repo brief; anything else (auth, timeouts, turn
- * limits) rethrows so the user decides.
+ * A throttled exploration is transient and the document can still be
+ * drafted from the repo brief; anything else (auth, timeouts, turn limits,
+ * a missing answer) rethrows so the user decides. Only the CLI's own rate
+ * limit counts: a message that merely quotes the model's text never does.
  */
 async function fallbackIfThrottled(
   error: unknown,
@@ -190,9 +191,11 @@ async function fallbackIfThrottled(
   userPrompt: string,
   options: ExploreOptions,
 ): Promise<ExploreResult> {
-  if (classifyLlmError(error).klass !== "rate-limit") {
+  if (!(error instanceof CliRateLimitError)) {
     throw error;
   }
+
+  emitDebug(options, `explore throttled: ${error.message}`);
 
   options.onEvent?.({
     type: "status",
@@ -200,12 +203,7 @@ async function fallbackIfThrottled(
       "The provider throttled the exploration — drafting from the repository summary instead",
   });
 
-  return singleShot(
-    systemPrompt,
-    userPrompt,
-    options,
-    "the provider rate-limited the exploration",
-  );
+  return singleShot(systemPrompt, userPrompt, options, RATE_LIMITED_REASON);
 }
 
 async function singleShot(

@@ -9,6 +9,7 @@
  * - warnings and the credits footer go to stderr, never stdout
  * - the prompt arrives on stdin under --no-interactive
  *
+ * FAKE_KIRO_THROTTLE=1 fails like 2.28 does when the service throttles.
  * FAKE_KIRO_SPLIT=1 flushes the answer in one-byte writes, so a test can
  * force an ANSI escape to straddle a chunk boundary.
  */
@@ -25,6 +26,15 @@ process.stdin.on("end", () => {
 
   if (process.env.FAKE_KIRO_FAIL === "1") {
     process.stderr.write("fake kiro-cli: not logged in\n");
+    process.exit(1);
+  }
+
+  if (process.env.FAKE_KIRO_THROTTLE === "1") {
+    // 2.28 under load: tool progress, then the service's verdict last.
+    process.stderr.write("[tool] Reading a.ts:1\n[tool] status: Completed\n");
+    process.stderr.write(
+      "Error: Internal error (code -32603): Encountered an error in the response stream: The request was throttled by the service (request_id: fake)\n",
+    );
     process.exit(1);
   }
 

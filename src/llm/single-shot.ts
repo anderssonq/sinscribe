@@ -1,5 +1,6 @@
 import { HumanMessage, SystemMessage } from "@langchain/core/messages";
 import { getProviderAuthKind, getProviderLabel } from "../constants.js";
+import { escapeRegExp } from "../util/regex.js";
 import {
   classifyLlmError,
   InvalidModelJsonError,
@@ -14,7 +15,6 @@ import {
   raceAbort,
   SINGLE_SHOT_TOTAL_MS,
 } from "./watchdog.js";
-import { escapeRegExp } from "../util/regex.js";
 
 export type SingleShotOptions = RunCallbacks & {
   modelId?: string | null;
@@ -124,9 +124,9 @@ export async function runSingleShot(
  */
 export function stripMarkdownFence(text: string): string {
   const trimmed = text.trim();
-  const match = /^```[a-z]*\n([\s\S]*?)\n?```$/u.exec(trimmed);
+  const match = /^```[\w-]*\r?\n([\s\S]*?)\r?\n?```$/u.exec(trimmed);
 
-  return match ? match[1] : trimmed;
+  return match ? match[1].trim() : trimmed;
 }
 
 /** Past this length, text before the first section is content, not chatter. */
@@ -139,7 +139,8 @@ const MAX_PREAMBLE_CHARS = 600;
  *
  * With `firstSection` (the heading the document must open with), everything
  * before that heading goes, however long — the prompt forbids anything above
- * it. Without it, or when the model skipped that section, only a short
+ * it — unless a "## " section sits above it: then the model reordered the
+ * document, and cutting would drop real sections. Otherwise only a short
  * lead-in before the first "## " or fence is dropped.
  */
 export function stripPreamble(text: string, firstSection?: string): string {
@@ -153,11 +154,11 @@ export function stripPreamble(text: string, firstSection?: string): string {
     const heading = new RegExp(
       // A fence opened right above the heading wraps the document: keep it
       // so stripMarkdownFence can unwrap the pair.
-      `^(?:\`\`\`[a-z]*\\r?\\n)?## ${escapeRegExp(firstSection)}\\b`,
+      `^(?:\`\`\`[\\w-]*\\r?\\n\\s*)?## ${escapeRegExp(firstSection)}\\b`,
       "mu",
     ).exec(trimmed);
 
-    if (heading !== null) {
+    if (heading !== null && !/^## /mu.test(trimmed.slice(0, heading.index))) {
       return trimmed.slice(heading.index);
     }
   }

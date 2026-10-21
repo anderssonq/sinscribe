@@ -177,30 +177,84 @@ export function classifyLlmError(error: unknown): ClassifiedLlmError {
   return classified("unknown", firstLine(message));
 }
 
+/** A line that states a failure, not one that merely mentions "error". */
+const ERROR_LINE_PATTERN = /^(?:error|fatal)\b|\berror:/iu;
+/** Lines kept above the cause line, for the context the CLI printed. */
+const CAUSE_CONTEXT_LINES = 2;
+
+/**
+ * A local CLI reported a rate limit itself (its stderr or its own error
+ * verdict, never the model's text). Callers may act on the type, e.g. by
+ * falling back, without regexing prose that could quote "throttle".
+ */
+export class CliRateLimitError extends CliError {}
+
+/** The fallback reason of a throttled exploration, for callers to flag. */
+export const RATE_LIMITED_REASON = "the provider rate-limited the exploration";
+
 /**
  * The cause of a failed CLI run from its stderr. The real error is usually
  * the last line, buried under `[tool]` progress lines, so a plain head-slice
- * would hide it: prefer the last line naming a rate limit (so the message
- * still classifies as one), then the last line mentioning an error, else the
- * tail.
+ * would hide it. The cause comes first: the last line naming a rate limit,
+ * else the last line stating an error, followed by the lines just above it.
+ * Without either, the tail.
  */
 export function cliFailureDetail(stderr: string, max = 500): string {
-  const lines = stderr
-    // eslint-disable-next-line no-control-regex
-    .replace(/\u001b\[[0-9;?]*[ -/]*[@-~]/gu, "")
-    .replace(/\r/gu, "")
-    .split("\n")
-    .map((line) => line.trim())
-    .filter((line) => line.length > 0 && !line.startsWith("[tool]"));
-  const causeLine =
-    lines.filter((line) => RATE_LIMIT_PATTERN.test(line)).at(-1) ??
-    lines.filter((line) => /\berror\b/iu.test(line)).at(-1);
+  const lines = failureLines(stderr);
+  const cause = causeIndex(lines);
 
-  if (causeLine !== undefined) {
-    return causeLine.slice(0, max);
+  if (cause === -1) {
+    return lines.join("\n").slice(-max).trim() || "(no output)";
   }
 
-  return lines.join("\n").slice(-max).trim() || "(no output)";
+  return [
+    lines[cause],
+    ...lines.slice(Math.max(0, cause - CAUSE_CONTEXT_LINES), cause),
+  ]
+    .join("\n")
+    .slice(0, max);
+}
+
+/**
+ * The error for a CLI that exited non-zero: `summary` plus the cause from
+ * its stderr, typed as a rate limit when the CLI said so.
+ */
+export function cliExitError(summary: string, stderr: string): CliError {
+  const message = `${summary}: ${cliFailureDetail(stderr)}`;
+
+  return failureLines(stderr).some((line) => RATE_LIMIT_PATTERN.test(line))
+    ? new CliRateLimitError(message)
+    : new CliError(message);
+}
+
+/** The error for a CLI's own failure verdict (e.g. claude's is_error result). */
+export function cliVerdictError(message: string, verdict: string): CliError {
+  return RATE_LIMIT_PATTERN.test(verdict)
+    ? new CliRateLimitError(message)
+    : new CliError(message);
+}
+
+function failureLines(stderr: string): string[] {
+  return (
+    stderr
+      // eslint-disable-next-line no-control-regex
+      .replace(/\u001b\[[0-9;?]*[ -/]*[@-~]/gu, "")
+      .replace(/\r/gu, "")
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0 && !line.startsWith("[tool]"))
+  );
+}
+
+function causeIndex(lines: string[]): number {
+  const lastMatch = (pattern: RegExp) =>
+    lines.reduce(
+      (found, line, index) => (pattern.test(line) ? index : found),
+      -1,
+    );
+  const rateLimit = lastMatch(RATE_LIMIT_PATTERN);
+
+  return rateLimit !== -1 ? rateLimit : lastMatch(ERROR_LINE_PATTERN);
 }
 
 /**

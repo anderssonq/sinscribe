@@ -13,6 +13,7 @@ import {
   isPathIgnored,
 } from "../git/repo.js";
 import type { RunCallbacks } from "../llm/events.js";
+import { RATE_LIMITED_REASON } from "../llm/errors.js";
 import { runExplore, type ExploreMode } from "../llm/explore.js";
 import {
   runSingleShot,
@@ -553,6 +554,13 @@ function postProcess(
 
   if (count > 0) {
     warnings.push(`redacted ${count} secret-looking value(s)`);
+  }
+
+  // A downgrade the reviewer should see next to approve, not only in the note.
+  if (meta.fallbackReason === RATE_LIMITED_REASON) {
+    warnings.push(
+      "drafted without reading the repository: the provider throttled the exploration; regenerate later to ground it in the code",
+    );
   }
 
   if (stage === "design") {

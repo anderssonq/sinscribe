@@ -170,8 +170,8 @@ behind an extra model call.
 Read,Glob,Grep` in the repo root; API-key providers run deepagents on a
      `FilesystemBackend` (no `execute`) with every write denied. Both deny the
      paths in `EXPLORE_DENY_GLOBS`, output is passed through `redactSecrets`,
-     and there is always a single-shot fallback (`--no-explore`, Kiro, an old
-     claude CLI). Never add a write or shell tool here, and adding this tier to
+     and there is always a single-shot fallback (`--no-explore`, an old
+     claude CLI, a CLI exploration the provider throttled). Never add a write or shell tool here, and adding this tier to
      another command needs a `DESIGN.md` entry first.
 - **Never let secrets reach the agent's shell.** `LocalShellBackend` is built with
   `inheritEnv: false` and an explicit `env: buildShellEnv()`, which strips every

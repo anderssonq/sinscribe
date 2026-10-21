@@ -15,8 +15,8 @@ import {
 import { ChatGenerationChunk, type ChatResult } from "@langchain/core/outputs";
 import { SECRET_ENV_KEYS } from "../../constants.js";
 import { CliError } from "../../domain/errors.js";
-import { cliFailureDetail } from "../errors.js";
 import { sinscribeEnvDir } from "../../env.js";
+import { cliExitError, cliVerdictError } from "../errors.js";
 import { getContentText } from "../events.js";
 import { ClaudeStreamParser } from "./stream.js";
 
@@ -208,15 +208,16 @@ export class ChatClaudeCli extends BaseChatModel<BaseChatModelCallOptions> {
     // The result event is the CLI's own verdict (e.g. "Not logged in"), and
     // it is more useful than the bare exit code, so it is checked first.
     if (parser.result?.isError) {
-      throw new CliError(
+      throw cliVerdictError(
         `${this.command} failed: ${parser.result.message || "(no detail)"}`,
+        parser.result.message,
       );
     }
 
     if (code !== 0) {
-      throw new CliError(
-        `${this.command} exited with code ${code ?? "?"}: ` +
-          cliFailureDetail(stderr),
+      throw cliExitError(
+        `${this.command} exited with code ${code ?? "?"}`,
+        stderr,
       );
     }
   }

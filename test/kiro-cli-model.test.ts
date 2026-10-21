@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import { HumanMessage, SystemMessage } from "@langchain/core/messages";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { CliError } from "../src/domain/errors.js";
+import { CliRateLimitError } from "../src/llm/errors.js";
 import { getKiroAgentDir, KIRO_AGENT_NAME } from "../src/llm/kiro-cli/agent.js";
 import { ChatKiroCli, flattenMessages } from "../src/llm/kiro-cli/model.js";
 
@@ -117,6 +118,17 @@ describe("ChatKiroCli", () => {
     vi.stubEnv("FAKE_KIRO_FAIL", "1");
 
     await expect(collect(makeModel())).rejects.toThrow(/not logged in/u);
+  });
+
+  it("types a throttled run as a rate limit and shows the throttle line", async () => {
+    vi.stubEnv("FAKE_KIRO_THROTTLE", "1");
+
+    const attempt = collect(makeModel());
+
+    await expect(attempt).rejects.toBeInstanceOf(CliRateLimitError);
+    await expect(attempt).rejects.toThrow(
+      /exited with code 1: Error: .*throttled by the service/u,
+    );
   });
 
   it("explains how to install a CLI that is not on PATH", async () => {

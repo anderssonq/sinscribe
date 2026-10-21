@@ -2,11 +2,11 @@ import { spawn } from "node:child_process";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { CliError } from "../../domain/errors.js";
-import { cliFailureDetail } from "../errors.js";
 import { sinscribeEnvDir } from "../../env.js";
 import { EXPLORE_DENY_GLOBS } from "../claude-cli/explore.js";
 import { listTrackedFiles } from "../../domain/repo-brief.js";
 import { redactSecrets } from "../../util/redact.js";
+import { cliExitError } from "../errors.js";
 import { emitDebug, type RunCallbacks } from "../events.js";
 import {
   createInactivityWatchdog,
@@ -461,9 +461,9 @@ export async function runKiroExplore(
     }
 
     if (code !== 0) {
-      throw new CliError(
-        `${input.command} chat exited with code ${code ?? "?"}: ` +
-          cliFailureDetail(stderr),
+      throw cliExitError(
+        `${input.command} chat exited with code ${code ?? "?"}`,
+        stderr,
       );
     }
 
